@@ -19,6 +19,11 @@ func (m method) hasSameSignature(other method) bool {
 		m.outputs == other.outputs
 }
 
+type methodLocation struct {
+	rootPlanName string
+	componentStack
+}
+
 func extractMethodDetails(rm reflect.Method, ignoreFirstReceiverArgument bool) method {
 	var arguments []string
 	for i := 0; i < rm.Type.NumIn(); i++ {
@@ -64,21 +69,28 @@ func (m method) String() string {
 type structDisassembler struct {
 	availableMethods             map[string]methodSet
 	methodsAvailableMoreThanOnce methodSet
+	methodLocations              map[method][]methodLocation
 }
 
 func newStructDisassembler() structDisassembler {
 	return structDisassembler{
 		availableMethods:             make(map[string]methodSet),
 		methodsAvailableMoreThanOnce: make(methodSet),
+		methodLocations:              make(map[method][]methodLocation),
 	}
 }
 
-func (sd structDisassembler) addAvailableMethod(m method) {
+func (sd structDisassembler) addAvailableMethod(m method, rootPlanName string, cs componentStack) {
 	ms, ok := sd.availableMethods[m.name]
 	if !ok {
 		ms = make(methodSet)
 		sd.availableMethods[m.name] = ms
 	}
+
+	sd.methodLocations[m] = append(sd.methodLocations[m], methodLocation{
+		rootPlanName:   rootPlanName,
+		componentStack: cs.clone(),
+	})
 
 	if ms.has(m) {
 		sd.methodsAvailableMoreThanOnce.add(m)
@@ -88,11 +100,35 @@ func (sd structDisassembler) addAvailableMethod(m method) {
 	ms.add(m)
 }
 
+func (sd structDisassembler) findMethodLocations(ms methodSet, rootPlanName string) []string {
+	var methodLocations []string
+	for _, m := range ms.items() {
+
+		for _, ml := range sd.methodLocations[m] {
+			if ml.rootPlanName == rootPlanName {
+				methodLocations = append(methodLocations, ml.String())
+			}
+		}
+	}
+
+	return methodLocations
+}
+
 func (sd structDisassembler) isAvailableMoreThanOnce(m method) bool {
 	return sd.methodsAvailableMoreThanOnce.has(m)
 }
 
 func (sd structDisassembler) extractAvailableMethods(t reflect.Type) []method {
+	var cs componentStack
+	return sd.performMethodExtraction(t, extractFullNameFromType(t), cs)
+}
+
+func (sd structDisassembler) performMethodExtraction(t reflect.Type, rootPlanName string, cs componentStack) []method {
+	cs = cs.push(extractFullNameFromType(t))
+	defer func() {
+		cs = cs.pop()
+	}()
+
 	var hoistedMethods []method
 
 	actualType := t
@@ -106,7 +142,7 @@ func (sd structDisassembler) extractAvailableMethods(t reflect.Type) []method {
 
 			// Extract methods from embedded fields
 			if rf.Anonymous {
-				childMethods := sd.extractAvailableMethods(rf.Type)
+				childMethods := sd.performMethodExtraction(rf.Type, rootPlanName, cs)
 				hoistedMethods = append(hoistedMethods, childMethods...)
 			}
 		}
@@ -143,7 +179,7 @@ func (sd structDisassembler) extractAvailableMethods(t reflect.Type) []method {
 		}
 
 		ownMethods = append(ownMethods, m)
-		sd.addAvailableMethod(m)
+		sd.addAvailableMethod(m, rootPlanName, cs)
 	}
 
 	var allMethods []method

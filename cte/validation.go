@@ -6,20 +6,19 @@ import (
 )
 
 func isComplete(e Engine, planValue reflect.Value) error {
-	planName := extractFullNameFromType(extractUnderlyingType(planValue))
-
 	sd := newStructDisassembler()
 	sd.extractAvailableMethods(planValue.Type())
 
 	var cs componentStack
+	rootPlanName := extractFullNameFromType(planValue.Type())
 
 	var verifyFn func(planName string, curPlanValue reflect.Value) error
 	verifyFn = func(planName string, curPlanValue reflect.Value) error {
 		ap := e.findAnalyzedPlan(planName, curPlanValue)
 
-		cs = cs.Push(planName)
+		cs = cs.push(planName)
 		defer func() {
-			cs = cs.Pop()
+			cs = cs.pop()
 		}()
 
 		for _, h := range ap.preHooks {
@@ -28,9 +27,9 @@ func isComplete(e Engine, planValue reflect.Value) error {
 				return ErrInoutMetaMissing.Err(reflect.TypeOf(h.hook))
 			}
 
-			err := isInterfaceSatisfied(sd, expectedInout)
+			err := isInterfaceSatisfied(sd, expectedInout, rootPlanName)
 			if err != nil {
-				cs = cs.Push(reflect.TypeOf(h.hook).Name())
+				cs = cs.push(reflect.TypeOf(h.hook).Name())
 				return ErrPlanNotMeetingInoutRequirements.Err(planValue.Type(), expectedInout, err.Error(), cs)
 			}
 		}
@@ -42,9 +41,9 @@ func isComplete(e Engine, planValue reflect.Value) error {
 					return ErrInoutMetaMissing.Err(component.id)
 				}
 
-				err := isInterfaceSatisfied(sd, expectedInout)
+				err := isInterfaceSatisfied(sd, expectedInout, rootPlanName)
 				if err != nil {
-					cs = cs.Push(component.id)
+					cs = cs.push(component.id)
 					return ErrPlanNotMeetingInoutRequirements.Err(planValue.Type(), expectedInout, err.Error(), cs)
 				}
 			}
@@ -70,9 +69,9 @@ func isComplete(e Engine, planValue reflect.Value) error {
 				return ErrInoutMetaMissing.Err(reflect.TypeOf(h.hook))
 			}
 
-			err := isInterfaceSatisfied(sd, expectedInout)
+			err := isInterfaceSatisfied(sd, expectedInout, rootPlanName)
 			if err != nil {
-				cs = cs.Push(reflect.TypeOf(h.hook).Name())
+				cs = cs.push(reflect.TypeOf(h.hook).Name())
 				return ErrPlanNotMeetingInoutRequirements.Err(planValue.Type(), expectedInout, err.Error(), cs)
 			}
 		}
@@ -80,10 +79,10 @@ func isComplete(e Engine, planValue reflect.Value) error {
 		return nil
 	}
 
-	return verifyFn(planName, planValue)
+	return verifyFn(rootPlanName, planValue)
 }
 
-func isInterfaceSatisfied(sd structDisassembler, expectedInterface reflect.Type) error {
+func isInterfaceSatisfied(sd structDisassembler, expectedInterface reflect.Type, rootPlanName string) error {
 	for i := 0; i < expectedInterface.NumMethod(); i++ {
 		rm := expectedInterface.Method(i)
 
@@ -95,7 +94,8 @@ func isInterfaceSatisfied(sd structDisassembler, expectedInterface reflect.Type)
 		}
 
 		if ms.count() > 1 {
-			return ErrPlanHavingAmbiguousMethods.Err(requiredMethod, ms)
+			methodLocations := sd.findMethodLocations(ms, rootPlanName)
+			return ErrPlanHavingAmbiguousMethods.Err(requiredMethod, ms, strings.Join(methodLocations, "; "))
 		}
 
 		foundMethod := ms.items()[0]
@@ -105,7 +105,8 @@ func isInterfaceSatisfied(sd structDisassembler, expectedInterface reflect.Type)
 		}
 
 		if sd.isAvailableMoreThanOnce(foundMethod) {
-			return ErrPlanHavingSameMethodRegisteredMoreThanOnce.Err(foundMethod)
+			methodLocations := sd.findMethodLocations(ms, rootPlanName)
+			return ErrPlanHavingSameMethodRegisteredMoreThanOnce.Err(foundMethod, strings.Join(methodLocations, "; "))
 		}
 	}
 
@@ -114,14 +115,24 @@ func isInterfaceSatisfied(sd structDisassembler, expectedInterface reflect.Type)
 
 type componentStack []string
 
-func (s componentStack) Push(componentName string) componentStack {
+func (s componentStack) push(componentName string) componentStack {
 	return append(s, componentName)
 }
 
-func (s componentStack) Pop() componentStack {
+func (s componentStack) pop() componentStack {
 	return s[0 : len(s)-1]
 }
 
 func (s componentStack) String() string {
 	return strings.Join(s, " >> ")
+}
+
+func (s componentStack) clone() componentStack {
+	result := make([]string, 0, len(s))
+
+	for _, c := range s {
+		result = append(result, c)
+	}
+
+	return result
 }
