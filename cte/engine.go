@@ -8,7 +8,7 @@ import (
 )
 
 type registeredComputer struct {
-	computer computerWrapper
+	computer bridgeComputer
 	metadata parsedMetadata
 }
 
@@ -69,7 +69,7 @@ func (e Engine) registerComputer(mp MetadataProvider) {
 
 	computer := reflect.New(computerType).Interface()
 	e.computers[computerID] = registeredComputer{
-		computer: newComputerWrapper(computer),
+		computer: newBridgeComputer(computer),
 		metadata: metadata,
 	}
 }
@@ -117,7 +117,7 @@ func (e Engine) doExecutePlan(ctx context.Context, planName string, p MasterPlan
 	return nil
 }
 
-func (e Engine) doExecuteComputer(ctx context.Context, c computerWrapper, p MasterPlan, loadingData LoadingData) (interface{}, error) {
+func (e Engine) doExecuteComputer(ctx context.Context, c bridgeComputer, p MasterPlan, loadingData LoadingData) (interface{}, error) {
 	result, err := c.Compute(ctx, p, loadingData)
 	if tep, ok := result.(toExecutePlan); ok {
 		if err != nil {
@@ -130,7 +130,7 @@ func (e Engine) doExecuteComputer(ctx context.Context, c computerWrapper, p Mast
 	return result, err
 }
 
-func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, componentCount int, loaders []LoadingComputer) []LoadingData {
+func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, componentCount int, loaders []loadingFn) []LoadingData {
 	loadingData := make([]LoadingData, componentCount)
 	if len(loaders) == 0 {
 		return loadingData
@@ -148,7 +148,7 @@ func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, component
 		tasks = append(
 			tasks,
 			async.NewSilentTask(func(taskCtx context.Context) error {
-				data, err := l.Load(taskCtx, p)
+				data, err := l(taskCtx, p)
 
 				loadingData[i] = LoadingData{
 					Data: data,
@@ -164,7 +164,7 @@ func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, component
 	return loadingData
 }
 
-func (e Engine) doExecuteSync(ctx context.Context, p MasterPlan, curPlanValue reflect.Value, loaders []LoadingComputer, components []parsedComponent) error {
+func (e Engine) doExecuteSync(ctx context.Context, p MasterPlan, curPlanValue reflect.Value, loaders []loadingFn, components []parsedComponent) error {
 	loadingData := e.doConcurrentLoading(ctx, p, len(components), loaders)
 
 	for idx, component := range components {
@@ -231,26 +231,16 @@ func (e Engine) doExecuteAsync(ctx context.Context, p MasterPlan, curPlanValue r
 		componentID := component.id
 
 		if c, ok := e.computers[componentID]; ok {
-			task := func() async.Task {
-				if c.computer.LoadingComputer == nil {
-					return async.NewTask(
-						func(taskCtx context.Context) (interface{}, error) {
-							return e.doExecuteComputer(taskCtx, c.computer, p, emptyLoadingData)
-						},
-					)
-				}
+			task := async.NewTask(
+				func(taskCtx context.Context) (interface{}, error) {
+					data, err := c.computer.Load(taskCtx, p)
 
-				return async.NewTask(
-					func(taskCtx context.Context) (interface{}, error) {
-						data, err := c.computer.LoadingComputer.Load(taskCtx, p)
-
-						return e.doExecuteComputer(taskCtx, c.computer, p, LoadingData{
-							Data: data,
-							Err:  err,
-						})
-					},
-				)
-			}()
+					return e.doExecuteComputer(taskCtx, c.computer, p, LoadingData{
+						Data: data,
+						Err:  err,
+					})
+				},
+			)
 
 			tasks = append(tasks, task)
 
