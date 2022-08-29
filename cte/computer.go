@@ -2,20 +2,46 @@ package cte
 
 import (
 	"context"
-
 	"github.com/jamestrandung/go-concurrency-117/async"
+	"reflect"
 )
 
 type ImpureComputer interface {
 	Compute(ctx context.Context, p MasterPlan) (interface{}, error)
 }
 
+type ImpureComputerWithLoadingData interface {
+	LoadingComputer
+	Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error)
+}
+
 type SideEffectComputer interface {
 	Compute(ctx context.Context, p MasterPlan) error
 }
 
+type SideEffectComputerWithLoadingData interface {
+	LoadingComputer
+	Compute(ctx context.Context, p MasterPlan, data LoadingData) error
+}
+
 type SwitchComputer interface {
 	Switch(ctx context.Context, p MasterPlan) (MasterPlan, error)
+}
+
+type SwitchComputerWithLoadingData interface {
+	LoadingComputer
+	Switch(ctx context.Context, p MasterPlan, data LoadingData) (MasterPlan, error)
+}
+
+type LoadingComputer interface {
+	Load(ctx context.Context, p MasterPlan) (interface{}, error)
+}
+
+var emptyLoadingData = LoadingData{}
+
+type LoadingData struct {
+	Data interface{}
+	Err  error
 }
 
 type toExecutePlan struct {
@@ -23,20 +49,86 @@ type toExecutePlan struct {
 }
 
 type bridgeComputer struct {
-	se SideEffectComputer
-	sw SwitchComputer
+	computeFn func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error)
 }
 
-func (bc bridgeComputer) Compute(ctx context.Context, p MasterPlan) (interface{}, error) {
-	if bc.se != nil {
-		return struct{}{}, bc.se.Compute(ctx, p)
+func (bc bridgeComputer) Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+	return bc.computeFn(ctx, p, data)
+}
+
+type computerWrapper struct {
+	LoadingComputer
+	bridgeComputer
+}
+
+func newComputerWrapper(rawComputer interface{}) computerWrapper {
+	switch c := rawComputer.(type) {
+	case ImpureComputerWithLoadingData:
+		return computerWrapper{
+			LoadingComputer: c,
+			bridgeComputer: bridgeComputer{
+				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+					return c.Compute(ctx, p, data)
+				},
+			},
+		}
+	case ImpureComputer:
+		return computerWrapper{
+			bridgeComputer: bridgeComputer{
+				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+					return c.Compute(ctx, p)
+				},
+			},
+		}
+	case SideEffectComputerWithLoadingData:
+		return computerWrapper{
+			LoadingComputer: c,
+			bridgeComputer: bridgeComputer{
+				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+					return struct{}{}, c.Compute(ctx, p, data)
+				},
+			},
+		}
+	case SideEffectComputer:
+		return computerWrapper{
+			bridgeComputer: bridgeComputer{
+				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+					return struct{}{}, c.Compute(ctx, p)
+				},
+			},
+		}
+	case SwitchComputerWithLoadingData:
+		return computerWrapper{
+			LoadingComputer: c,
+			bridgeComputer: bridgeComputer{
+				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+					return c.Switch(ctx, p, data)
+				},
+			},
+		}
+	case SwitchComputer:
+		return computerWrapper{
+			bridgeComputer: bridgeComputer{
+				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+					return c.Switch(ctx, p)
+				},
+			},
+		}
+	default:
+		panic(ErrInvalidComputerType.Err(reflect.TypeOf(c)))
+	}
+}
+
+func (w computerWrapper) Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+	result, err := w.bridgeComputer.Compute(ctx, p, data)
+
+	if mp, ok := result.(MasterPlan); ok {
+		return toExecutePlan{
+			mp: mp,
+		}, err
 	}
 
-	mp, err := bc.sw.Switch(ctx, p)
-
-	return toExecutePlan{
-		mp: mp,
-	}, err
+	return result, err
 }
 
 type SideEffect struct{}

@@ -20,6 +20,7 @@ type analyzedPlan struct {
 	isMasterPlan bool
 	isSequential bool
 	components   []parsedComponent
+	loaders      []LoadingComputer
 	preHooks     []preHook
 	postHooks    []postHook
 }
@@ -81,14 +82,38 @@ func (pa *planAnalyzer) analyze() analyzedPlan {
 
 	_, isMasterPlan := pa.plan.(MasterPlan)
 
+	loaders := pa.extractLoaders()
+
 	return analyzedPlan{
 		pType:        extractUnderlyingType(pa.planValue),
 		isMasterPlan: isMasterPlan,
 		isSequential: pa.plan.IsSequentialCTEPlan(),
 		components:   pa.components,
+		loaders:      loaders,
 		preHooks:     pa.preHooks,
 		postHooks:    pa.postHooks,
 	}
+}
+
+func (pa *planAnalyzer) extractLoaders() []LoadingComputer {
+	loaders := make([]LoadingComputer, len(pa.components))
+
+	foundLoader := false
+	for idx, component := range pa.components {
+		if c, ok := pa.engine.computers[component.id]; ok {
+			if c.computer.LoadingComputer != nil {
+				loaders[idx] = c.computer.LoadingComputer
+				foundLoader = true
+			}
+		}
+	}
+
+	if !foundLoader {
+		var tmp []LoadingComputer
+		return tmp
+	}
+
+	return loaders
 }
 
 type fieldAnalyzer struct {
