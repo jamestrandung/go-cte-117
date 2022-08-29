@@ -102,7 +102,11 @@ func newComputerWrapper(rawComputer interface{}) computerWrapper {
 			LoadingComputer: c,
 			bridgeComputer: bridgeComputer{
 				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
-					return c.Switch(ctx, p, data)
+					mp, err := c.Switch(ctx, p, data)
+
+					return toExecutePlan{
+						mp: mp,
+					}, err
 				},
 			},
 		}
@@ -110,7 +114,11 @@ func newComputerWrapper(rawComputer interface{}) computerWrapper {
 		return computerWrapper{
 			bridgeComputer: bridgeComputer{
 				computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
-					return c.Switch(ctx, p)
+					mp, err := c.Switch(ctx, p)
+
+					return toExecutePlan{
+						mp: mp,
+					}, err
 				},
 			},
 		}
@@ -120,15 +128,7 @@ func newComputerWrapper(rawComputer interface{}) computerWrapper {
 }
 
 func (w computerWrapper) Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
-	result, err := w.bridgeComputer.Compute(ctx, p, data)
-
-	if mp, ok := result.(MasterPlan); ok {
-		return toExecutePlan{
-			mp: mp,
-		}, err
-	}
-
-	return result, err
+	return w.bridgeComputer.Compute(ctx, p, data)
 }
 
 type SideEffect struct{}
