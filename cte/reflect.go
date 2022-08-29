@@ -100,6 +100,10 @@ func (sd structDisassembler) addAvailableMethod(m method, rootPlanName string, c
 	ms.add(m)
 }
 
+func (sd structDisassembler) isAvailableMoreThanOnce(m method) bool {
+	return sd.methodsAvailableMoreThanOnce.has(m)
+}
+
 func (sd structDisassembler) findMethodLocations(ms methodSet, rootPlanName string) []string {
 	var methodLocations []string
 	for _, m := range ms.items() {
@@ -112,10 +116,6 @@ func (sd structDisassembler) findMethodLocations(ms methodSet, rootPlanName stri
 	}
 
 	return methodLocations
-}
-
-func (sd structDisassembler) isAvailableMoreThanOnce(m method) bool {
-	return sd.methodsAvailableMoreThanOnce.has(m)
 }
 
 func (sd structDisassembler) extractAvailableMethods(t reflect.Type) []method {

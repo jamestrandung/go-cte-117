@@ -119,7 +119,6 @@ func (e Engine) doExecutePlan(ctx context.Context, planName string, p MasterPlan
 
 func (e Engine) doExecuteComputer(ctx context.Context, c computerWrapper, p MasterPlan, loadingData LoadingData) (interface{}, error) {
 	result, err := c.Compute(ctx, p, loadingData)
-
 	if tep, ok := result.(toExecutePlan); ok {
 		if err != nil {
 			return tep.mp, err
