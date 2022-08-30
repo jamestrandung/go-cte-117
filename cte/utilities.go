@@ -15,12 +15,10 @@ func swallowErrPlanExecutionEndingEarly(err error) error {
 }
 
 func extractFullNameFromValue(v interface{}) string {
-	rt := extractUnderlyingType(reflect.ValueOf(v))
-
-	return extractFullNameFromType(rt)
+	return extractFullNameFromType(reflect.TypeOf(v))
 }
 
-func extractFullNameFromType(t reflect.Type) string {
+var extractFullNameFromType = func(t reflect.Type) string {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
@@ -47,7 +45,7 @@ func extractFieldTypes(field reflect.StructField) (isPointerType bool, valueType
 	return
 }
 
-func extractUnderlyingType(v reflect.Value) reflect.Type {
+var extractUnderlyingType = func(v reflect.Value) reflect.Type {
 	if v.Kind() == reflect.Pointer {
 		return v.Elem().Type()
 	}
