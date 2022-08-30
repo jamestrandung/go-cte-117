@@ -91,7 +91,7 @@ func TestExtractShortName(t *testing.T) {
 	}{
 		{
 			desc:     "containing /",
-			fullName: "github.com/jamestrandung/go-cte/cte/dummy",
+			fullName: "github.com/jamestrandung/go-cte-117/cte/dummy",
 			expected: "dummy",
 		},
 		{

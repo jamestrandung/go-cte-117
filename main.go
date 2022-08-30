@@ -14,12 +14,13 @@ func main() {
 	err := config.Engine.VerifyConfigurations()
 	fmt.Println("Engine configuration error:", err)
 
+	server.Serve()
+
 	testEngine()
+	testPlainGo()
 }
 
 func testEngine() {
-	server.Serve()
-
 	p := endpoint.NewPlan(
 		dto.CostRequest{
 			PointA: "Clementi",
@@ -35,4 +36,18 @@ func testEngine() {
 	//config.Print(p.GetTravelCost())
 	config.Print(p.GetTotalCost())
 	config.Print(p.GetVATAmount())
+}
+
+func testPlainGo() {
+	quote, err := server.Handler.Handle(context.Background(), dto.CostRequest{
+		PointA: "Clementi",
+		PointB: "Changi Airport",
+	})
+
+	if err != nil {
+		fmt.Println("Plain Go error:", err)
+	}
+
+	config.Print(quote.TotalCost)
+	config.Print(quote.VATAmount)
 }
