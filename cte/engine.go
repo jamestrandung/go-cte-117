@@ -2,9 +2,11 @@ package cte
 
 import (
 	"context"
+	"fmt"
 	"github.com/jamestrandung/go-concurrency-117/async"
 	"golang.org/x/sync/errgroup"
 	"reflect"
+	"runtime/debug"
 )
 
 type registeredComputer struct {
@@ -169,13 +171,15 @@ func (e Engine) doExecuteSync(ctx context.Context, p MasterPlan, curPlanValue re
 
 	for idx, component := range components {
 		if c, ok := e.computers[component.id]; ok {
-			task := async.NewTask(
-				func(taskCtx context.Context) (interface{}, error) {
-					return e.doExecuteComputer(taskCtx, c.computer, p, loadingData[idx])
-				},
-			)
+			result, err := func() (result any, err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						err = fmt.Errorf("panic executing sync task: %v \n %s", r, debug.Stack())
+					}
+				}()
 
-			result, err := task.RunSync(ctx).Outcome()
+				return e.doExecuteComputer(ctx, c.computer, p, loadingData[idx])
+			}()
 
 			// Register Result/SyncResult in a sequential plan's field
 			if component.requireSet {
@@ -186,6 +190,7 @@ func (e Engine) doExecuteSync(ctx context.Context, p MasterPlan, curPlanValue re
 						return reflect.ValueOf(newSyncResult(result)).Convert(component.fieldType)
 					}
 
+					task := async.Completed(result, err)
 					return reflect.ValueOf(newResult(task)).Convert(component.fieldType)
 				}()
 
