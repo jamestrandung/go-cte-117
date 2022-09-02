@@ -11,6 +11,10 @@ type dummy struct {
 	nonPointer string
 }
 
+func (d dummy) DoDummy(arg1 string, arg2 int) (float64, []dummy) {
+	return 0, nil
+}
+
 func TestSwallowErrPlanExecutionEndingEarly(t *testing.T) {
 	scenarios := []struct {
 		desc     string

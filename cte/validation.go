@@ -123,10 +123,6 @@ func (s componentStack) pop() componentStack {
 	return s[0 : len(s)-1]
 }
 
-func (s componentStack) String() string {
-	return strings.Join(s, " >> ")
-}
-
 func (s componentStack) clone() componentStack {
 	result := make([]string, 0, len(s))
 
@@ -135,4 +131,8 @@ func (s componentStack) clone() componentStack {
 	}
 
 	return result
+}
+
+func (s componentStack) String() string {
+	return strings.Join(s, " >> ")
 }

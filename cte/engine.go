@@ -133,6 +133,7 @@ func (e Engine) doExecuteComputer(ctx context.Context, c bridgeComputer, p Maste
 }
 
 func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, componentCount int, loaders []loadingFn) []LoadingData {
+	// Data has to be loaded at the same index with the corresponding component
 	loadingData := make([]LoadingData, componentCount)
 	if len(loaders) == 0 {
 		return loadingData
