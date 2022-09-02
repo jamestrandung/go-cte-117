@@ -37,8 +37,6 @@ type LoadingComputer interface {
 	Load(ctx context.Context, p MasterPlan) (interface{}, error)
 }
 
-var emptyLoadingData = LoadingData{}
-
 type LoadingData struct {
 	Data interface{}
 	Err  error
@@ -50,27 +48,27 @@ type toExecutePlan struct {
 
 type loadingFn func(ctx context.Context, p MasterPlan) (interface{}, error)
 
-type bridgeComputer struct {
+type delegatingComputer struct {
 	loadingFn loadingFn
 	computeFn func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error)
 }
 
-func (bc bridgeComputer) Load(ctx context.Context, p MasterPlan) (interface{}, error) {
-	if bc.loadingFn == nil {
+func (dc delegatingComputer) Load(ctx context.Context, p MasterPlan) (interface{}, error) {
+	if dc.loadingFn == nil {
 		return nil, nil
 	}
 
-	return bc.loadingFn(ctx, p)
+	return dc.loadingFn(ctx, p)
 }
 
-func (bc bridgeComputer) Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
-	return bc.computeFn(ctx, p, data)
+func (dc delegatingComputer) Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+	return dc.computeFn(ctx, p, data)
 }
 
-func newBridgeComputer(rawComputer interface{}) bridgeComputer {
+func newDelegatingComputer(rawComputer interface{}) delegatingComputer {
 	switch c := rawComputer.(type) {
 	case ImpureComputerWithLoadingData:
-		return bridgeComputer{
+		return delegatingComputer{
 			loadingFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
 				return c.Load(ctx, p)
 			},
@@ -79,13 +77,13 @@ func newBridgeComputer(rawComputer interface{}) bridgeComputer {
 			},
 		}
 	case ImpureComputer:
-		return bridgeComputer{
+		return delegatingComputer{
 			computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
 				return c.Compute(ctx, p)
 			},
 		}
 	case SideEffectComputerWithLoadingData:
-		return bridgeComputer{
+		return delegatingComputer{
 			loadingFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
 				return c.Load(ctx, p)
 			},
@@ -94,13 +92,13 @@ func newBridgeComputer(rawComputer interface{}) bridgeComputer {
 			},
 		}
 	case SideEffectComputer:
-		return bridgeComputer{
+		return delegatingComputer{
 			computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
 				return struct{}{}, c.Compute(ctx, p)
 			},
 		}
 	case SwitchComputerWithLoadingData:
-		return bridgeComputer{
+		return delegatingComputer{
 			loadingFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
 				return c.Load(ctx, p)
 			},
@@ -113,7 +111,7 @@ func newBridgeComputer(rawComputer interface{}) bridgeComputer {
 			},
 		}
 	case SwitchComputer:
-		return bridgeComputer{
+		return delegatingComputer{
 			computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
 				mp, err := c.Switch(ctx, p)
 

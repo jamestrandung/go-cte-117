@@ -10,7 +10,7 @@ import (
 )
 
 type registeredComputer struct {
-	computer bridgeComputer
+	computer delegatingComputer
 	metadata parsedMetadata
 }
 
@@ -71,7 +71,7 @@ func (e Engine) registerComputer(mp MetadataProvider) {
 
 	computer := reflect.New(computerType).Interface()
 	e.computers[computerID] = registeredComputer{
-		computer: newBridgeComputer(computer),
+		computer: newDelegatingComputer(computer),
 		metadata: metadata,
 	}
 }
@@ -119,7 +119,7 @@ func (e Engine) doExecutePlan(ctx context.Context, planName string, p MasterPlan
 	return nil
 }
 
-func (e Engine) doExecuteComputer(ctx context.Context, c bridgeComputer, p MasterPlan, loadingData LoadingData) (interface{}, error) {
+func (e Engine) doExecuteComputer(ctx context.Context, c delegatingComputer, p MasterPlan, loadingData LoadingData) (interface{}, error) {
 	result, err := c.Compute(ctx, p, loadingData)
 	if tep, ok := result.(toExecutePlan); ok {
 		if err != nil {
