@@ -2,6 +2,7 @@ package cte
 
 import (
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"reflect"
 	"testing"
 )
@@ -183,10 +184,10 @@ func TestStructDisassembler_IsAvailableMoreThanOnce(t *testing.T) {
 	sd := newStructDisassembler()
 	assert.Equal(t, false, sd.isAvailableMoreThanOnce(m))
 
-	addAvailableMethod(sd, rootPlanName, cs, m)
+	sd.addAvailableMethod(rootPlanName, cs, m)
 	assert.Equal(t, false, sd.isAvailableMoreThanOnce(m))
 
-	addAvailableMethod(sd, rootPlanName, cs, m)
+	sd.addAvailableMethod(rootPlanName, cs, m)
 	assert.Equal(t, true, sd.isAvailableMoreThanOnce(m))
 }
 
@@ -213,9 +214,9 @@ func TestStructDisassembler_FindMethodLocations(t *testing.T) {
 	}
 
 	sd := newStructDisassembler()
-	addAvailableMethod(sd, "rootPlanName1", componentStack{"dummyComponent1"}, methodToLookFor1)
-	addAvailableMethod(sd, "rootPlanName1", componentStack{"dummyComponent2"}, methodToLookFor2)
-	addAvailableMethod(sd, "rootPlanName2", componentStack{"dummyComponent1"}, methodFromAnotherRootPlan)
+	sd.addAvailableMethod("rootPlanName1", componentStack{"dummyComponent1"}, methodToLookFor1)
+	sd.addAvailableMethod("rootPlanName1", componentStack{"dummyComponent2"}, methodToLookFor2)
+	sd.addAvailableMethod("rootPlanName2", componentStack{"dummyComponent1"}, methodFromAnotherRootPlan)
 
 	ms := make(methodSet)
 	ms.add(methodToLookFor1)
@@ -244,7 +245,7 @@ func TestAddAvailableMethod(t *testing.T) {
 	assert.Equal(t, 0, sd.methodsAvailableMoreThanOnce.count())
 	assert.Equal(t, 0, len(sd.methodLocations))
 
-	addAvailableMethod(sd, rootPlanName, cs, m)
+	sd.addAvailableMethod(rootPlanName, cs, m)
 	assert.Equal(t, 1, len(sd.availableMethods))
 	assert.Equal(t, 0, sd.methodsAvailableMoreThanOnce.count())
 	assert.Equal(t, 1, len(sd.methodLocations))
@@ -256,7 +257,7 @@ func TestAddAvailableMethod(t *testing.T) {
 
 	cs = cs.push("dummyComponent2")
 
-	addAvailableMethod(sd, rootPlanName, cs, m)
+	sd.addAvailableMethod(rootPlanName, cs, m)
 	assert.Equal(t, 1, len(sd.availableMethods))
 	assert.Equal(t, 1, sd.methodsAvailableMoreThanOnce.count())
 	assert.Equal(t, 1, len(sd.methodLocations))
@@ -280,18 +281,13 @@ func TestAddAvailableMethod(t *testing.T) {
 }
 
 func TestPerformMethodExtraction(test *testing.T) {
-	defer func(original func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack) []method) {
-		extractChildMethods = original
-	}(extractChildMethods)
-
-	defer func(original func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack, hoistedMethods []method) []method) {
-		extractOwnMethods = original
-	}(extractOwnMethods)
-
 	t := reflect.TypeOf(dummy{})
 	rootPlanName := "rootPlanName"
 	cs := componentStack{}
+
 	sd := newStructDisassembler()
+	sdMock := &mockIStructDisassembler{}
+	sd.itself = sdMock
 
 	childMethods := []method{
 		{
@@ -302,35 +298,35 @@ func TestPerformMethodExtraction(test *testing.T) {
 		},
 	}
 
-	extractChildMethods = func(sdIn structDisassembler, t reflect.Type, rootPlanNameIn string, csIn componentStack) []method {
-		assert.Equal(test, sd, sdIn)
-		assert.Equal(test, reflect.TypeOf(dummy{}), t)
-		assert.Equal(test, rootPlanName, rootPlanNameIn)
-		if assert.Equal(test, 1, len(csIn)) {
-			assert.Equal(test, "github.com/jamestrandung/go-cte-117/cte/dummy", csIn[0])
-		}
+	sdMock.On("extractChildMethods", mock.Anything, mock.Anything, mock.Anything).
+		Return(func(t reflect.Type, rootPlanNameIn string, csIn componentStack) []method {
+			assert.Equal(test, reflect.TypeOf(dummy{}), t)
+			assert.Equal(test, rootPlanName, rootPlanNameIn)
+			if assert.Equal(test, 1, len(csIn)) {
+				assert.Equal(test, "github.com/jamestrandung/go-cte-117/cte/dummy", csIn[0])
+			}
 
-		return childMethods
-	}
+			return childMethods
+		}).Once()
 
-	extractOwnMethods = func(sdIn structDisassembler, t reflect.Type, rootPlanNameIn string, csIn componentStack, hoistedMethods []method) []method {
-		assert.Equal(test, sd, sdIn)
-		assert.Equal(test, reflect.TypeOf(dummy{}), t)
-		assert.Equal(test, rootPlanName, rootPlanNameIn)
-		if assert.Equal(test, 1, len(csIn)) {
-			assert.Equal(test, "github.com/jamestrandung/go-cte-117/cte/dummy", csIn[0])
-		}
-		assert.Equal(test, childMethods, hoistedMethods)
+	sdMock.On("extractOwnMethods", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(func(t reflect.Type, rootPlanNameIn string, csIn componentStack, hoistedMethods []method) []method {
+			assert.Equal(test, reflect.TypeOf(dummy{}), t)
+			assert.Equal(test, rootPlanName, rootPlanNameIn)
+			if assert.Equal(test, 1, len(csIn)) {
+				assert.Equal(test, "github.com/jamestrandung/go-cte-117/cte/dummy", csIn[0])
+			}
+			assert.Equal(test, childMethods, hoistedMethods)
 
-		return []method{
-			{
-				owningType: "owningType2",
-				name:       "name",
-				arguments:  "arguments",
-				outputs:    "output1,output2",
-			},
-		}
-	}
+			return []method{
+				{
+					owningType: "owningType2",
+					name:       "name",
+					arguments:  "arguments",
+					outputs:    "output1,output2",
+				},
+			}
+		}).Once()
 
 	expected := []method{
 		{
@@ -347,9 +343,10 @@ func TestPerformMethodExtraction(test *testing.T) {
 		},
 	}
 
-	actual := performMethodExtraction(sd, t, rootPlanName, cs)
+	actual := sd.performMethodExtraction(t, rootPlanName, cs)
 	assert.Equal(test, 0, len(cs))
 	assert.Equal(test, expected, actual)
+	mock.AssertExpectationsForObjects(test, sdMock)
 }
 
 type field1 struct{}
@@ -362,14 +359,13 @@ type extractChildMethods_struct struct {
 }
 
 func TestExtractChildMethods(test *testing.T) {
-	defer func(original func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack) []method) {
-		performMethodExtraction = original
-	}(performMethodExtraction)
-
 	rootPlanName := "rootPlanName"
 	cs := componentStack{}
 	cs = cs.push("dummy")
+
 	sd := newStructDisassembler()
+	sdMock := &mockIStructDisassembler{}
+	sd.itself = sdMock
 
 	expected := []method{
 		{
@@ -386,31 +382,33 @@ func TestExtractChildMethods(test *testing.T) {
 		},
 	}
 
-	performMethodExtraction = func(sdIn structDisassembler, t reflect.Type, rootPlanNameIn string, csIn componentStack) []method {
-		assert.Equal(test, sd, sdIn)
-		assert.Equal(test, reflect.TypeOf(field1{}), t, "performMethodExtraction must only be called on embedded field1, not non-embedded field2")
-		assert.Equal(test, rootPlanName, rootPlanNameIn)
-		if assert.Equal(test, 1, len(csIn)) {
-			assert.Equal(test, "dummy", csIn[0])
-		}
+	sdMock.On("performMethodExtraction", mock.Anything, mock.Anything, mock.Anything).
+		Return(func(t reflect.Type, rootPlanNameIn string, csIn componentStack) []method {
+			assert.Equal(test, reflect.TypeOf(field1{}), t, "performMethodExtraction must only be called on embedded field1, not non-embedded field2")
+			assert.Equal(test, rootPlanName, rootPlanNameIn)
+			if assert.Equal(test, 1, len(csIn)) {
+				assert.Equal(test, "dummy", csIn[0])
+			}
 
-		return expected
-	}
+			return expected
+		}).Times(2)
 
 	test.Run("non-struct type", func(t *testing.T) {
-		actual := extractChildMethods(sd, reflect.TypeOf(true), rootPlanName, cs)
+		actual := sd.extractChildMethods(reflect.TypeOf(true), rootPlanName, cs)
 		assert.Equal(test, []method(nil), actual)
 	})
 
 	test.Run("non-pointer type", func(t *testing.T) {
-		actual := extractChildMethods(sd, reflect.TypeOf(extractChildMethods_struct{}), rootPlanName, cs)
+		actual := sd.extractChildMethods(reflect.TypeOf(extractChildMethods_struct{}), rootPlanName, cs)
 		assert.Equal(test, expected, actual)
 	})
 
 	test.Run("pointer type", func(t *testing.T) {
-		actual := extractChildMethods(sd, reflect.TypeOf(&extractChildMethods_struct{}), rootPlanName, cs)
+		actual := sd.extractChildMethods(reflect.TypeOf(&extractChildMethods_struct{}), rootPlanName, cs)
 		assert.Equal(test, expected, actual)
 	})
+
+	mock.AssertExpectationsForObjects(test, sdMock)
 }
 
 type extractOwnMethods_struct struct{}
@@ -423,13 +421,12 @@ func TestExtractOwnMethods(test *testing.T) {
 		extractMethodDetails = original
 	}(extractMethodDetails)
 
-	defer func(original func(sd structDisassembler, rootPlanName string, cs componentStack, m method)) {
-		addAvailableMethod = original
-	}(addAvailableMethod)
-
 	rootPlanName := "rootPlanName"
 	cs := componentStack{}
+
 	sd := newStructDisassembler()
+	sdMock := &mockIStructDisassembler{}
+	sd.itself = sdMock
 
 	extractMethodDetails = func(rm reflect.Method, ignoreFirstReceiverArgument bool) method {
 		assert.True(test, ignoreFirstReceiverArgument)
@@ -439,17 +436,18 @@ func TestExtractOwnMethods(test *testing.T) {
 		}
 	}
 
-	addAvailableMethod = func(sd structDisassembler, rootPlanNameIn string, csIn componentStack, m method) {
-		assert.Equal(test, rootPlanName, rootPlanNameIn)
-		assert.Equal(test, cs, csIn)
+	sdMock.On("addAvailableMethod", mock.Anything, mock.Anything, mock.Anything).
+		Return(func(rootPlanNameIn string, csIn componentStack, m method) {
+			assert.Equal(test, rootPlanName, rootPlanNameIn)
+			assert.Equal(test, cs, csIn)
 
-		expected := method{
-			owningType: "github.com/jamestrandung/go-cte-117/cte/extractOwnMethods_struct",
-			name:       "dummy",
-		}
+			expected := method{
+				owningType: "github.com/jamestrandung/go-cte-117/cte/extractOwnMethods_struct",
+				name:       "dummy",
+			}
 
-		assert.Equal(test, expected, m)
-	}
+			assert.Equal(test, expected, m)
+		}).Times(2)
 
 	test.Run("hoisted methods do not contain owned methods", func(t *testing.T) {
 		expected := []method{
@@ -463,7 +461,7 @@ func TestExtractOwnMethods(test *testing.T) {
 			},
 		}
 
-		actual := extractOwnMethods(sd, reflect.TypeOf(extractOwnMethods_struct{}), rootPlanName, cs, []method{})
+		actual := sd.extractOwnMethods(reflect.TypeOf(extractOwnMethods_struct{}), rootPlanName, cs, []method{})
 
 		assert.Equal(test, expected, actual)
 	})
@@ -475,8 +473,10 @@ func TestExtractOwnMethods(test *testing.T) {
 			},
 		}
 
-		actual := extractOwnMethods(sd, reflect.TypeOf(extractOwnMethods_struct{}), rootPlanName, cs, hoistedMethods)
+		actual := sd.extractOwnMethods(reflect.TypeOf(extractOwnMethods_struct{}), rootPlanName, cs, hoistedMethods)
 
 		assert.Equal(test, []method(nil), actual)
 	})
+
+	mock.AssertExpectationsForObjects(test, sdMock)
 }

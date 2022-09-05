@@ -66,18 +66,42 @@ var extractMethodDetails = func(rm reflect.Method, ignoreFirstReceiverArgument b
 	}
 }
 
+//go:generate mockery --name iStructDisassembler --case=underscore --inpackage
+type iStructDisassembler interface {
+	isAvailableMoreThanOnce(m method) bool
+	findMethodLocations(ms methodSet, rootPlanName string) []string
+	extractAvailableMethods(t reflect.Type) []method
+	addAvailableMethod(rootPlanName string, cs componentStack, m method)
+	performMethodExtraction(t reflect.Type, rootPlanName string, cs componentStack) []method
+	extractChildMethods(t reflect.Type, rootPlanName string, cs componentStack) []method
+	extractOwnMethods(t reflect.Type, rootPlanName string, cs componentStack, hoistedMethods []method) []method
+}
+
 type structDisassembler struct {
+	itself                       iStructDisassembler
 	availableMethods             map[string]methodSet
 	methodsAvailableMoreThanOnce methodSet
 	methodLocations              map[method][]methodLocation
 }
 
 func newStructDisassembler() structDisassembler {
-	return structDisassembler{
+	result := structDisassembler{
 		availableMethods:             make(map[string]methodSet),
 		methodsAvailableMoreThanOnce: make(methodSet),
 		methodLocations:              make(map[method][]methodLocation),
 	}
+
+	result.itself = result
+
+	return result
+}
+
+func (sd structDisassembler) self() iStructDisassembler {
+	if sd.itself != nil {
+		return sd.itself
+	}
+
+	return sd
 }
 
 func (sd structDisassembler) isAvailableMoreThanOnce(m method) bool {
@@ -99,10 +123,10 @@ func (sd structDisassembler) findMethodLocations(ms methodSet, rootPlanName stri
 
 func (sd structDisassembler) extractAvailableMethods(t reflect.Type) []method {
 	var cs componentStack
-	return performMethodExtraction(sd, t, extractFullNameFromType(t), cs)
+	return sd.performMethodExtraction(t, extractFullNameFromType(t), cs)
 }
 
-var addAvailableMethod = func(sd structDisassembler, rootPlanName string, cs componentStack, m method) {
+func (sd structDisassembler) addAvailableMethod(rootPlanName string, cs componentStack, m method) {
 	ms, ok := sd.availableMethods[m.name]
 	if !ok {
 		ms = make(methodSet)
@@ -125,87 +149,81 @@ var addAvailableMethod = func(sd structDisassembler, rootPlanName string, cs com
 	ms.add(m)
 }
 
-var performMethodExtraction func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack) []method
-var extractChildMethods func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack) []method
-var extractOwnMethods func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack, hoistedMethods []method) []method
+func (sd structDisassembler) performMethodExtraction(t reflect.Type, rootPlanName string, cs componentStack) []method {
+	cs = cs.push(extractFullNameFromType(t))
+	defer func() {
+		cs = cs.pop()
+	}()
 
-func init() {
-	performMethodExtraction = func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack) []method {
-		cs = cs.push(extractFullNameFromType(t))
-		defer func() {
-			cs = cs.pop()
+	hoistedMethods := sd.self().extractChildMethods(t, rootPlanName, cs)
+	ownMethods := sd.self().extractOwnMethods(t, rootPlanName, cs, hoistedMethods)
+
+	var allMethods []method
+	allMethods = append(allMethods, hoistedMethods...)
+	allMethods = append(allMethods, ownMethods...)
+
+	return allMethods
+}
+
+func (sd structDisassembler) extractChildMethods(t reflect.Type, rootPlanName string, cs componentStack) []method {
+	var hoistedMethods []method
+
+	actualType := t
+	if actualType.Kind() == reflect.Pointer {
+		actualType = t.Elem()
+	}
+
+	if actualType.Kind() == reflect.Struct {
+		for i := 0; i < actualType.NumField(); i++ {
+			rf := actualType.Field(i)
+
+			// Extract methods from embedded fields
+			if rf.Anonymous {
+				childMethods := sd.self().performMethodExtraction(rf.Type, rootPlanName, cs)
+				hoistedMethods = append(hoistedMethods, childMethods...)
+			}
+		}
+	}
+
+	return hoistedMethods
+}
+
+func (sd structDisassembler) extractOwnMethods(t reflect.Type, rootPlanName string, cs componentStack, hoistedMethods []method) []method {
+	var ownMethods []method
+
+	for i := 0; i < t.NumMethod(); i++ {
+		rm := t.Method(i)
+
+		m := extractMethodDetails(rm, true)
+		m.owningType = t.PkgPath() + "/" + t.Name()
+
+		isHoistedMethod := func() bool {
+			for j := 0; j < len(hoistedMethods); j++ {
+				hm := hoistedMethods[j]
+
+				if hm.hasSameSignature(m) {
+					return true
+				}
+			}
+
+			return false
 		}()
 
-		hoistedMethods := extractChildMethods(sd, t, rootPlanName, cs)
-		ownMethods := extractOwnMethods(sd, t, rootPlanName, cs, hoistedMethods)
-
-		var allMethods []method
-		allMethods = append(allMethods, hoistedMethods...)
-		allMethods = append(allMethods, ownMethods...)
-
-		return allMethods
-	}
-
-	extractChildMethods = func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack) []method {
-		var hoistedMethods []method
-
-		actualType := t
-		if actualType.Kind() == reflect.Pointer {
-			actualType = t.Elem()
+		// If a parent struct has a method carrying the same signature as one
+		// that is available in an embedded field, it means this is a hoisted
+		// method or the parent is overriding the same method with its own
+		// implementation. In either case, we can assume this is a hoisted
+		// method as it doesn't make a difference to how we should validate
+		// code templates.
+		if isHoistedMethod {
+			continue
 		}
 
-		if actualType.Kind() == reflect.Struct {
-			for i := 0; i < actualType.NumField(); i++ {
-				rf := actualType.Field(i)
-
-				// Extract methods from embedded fields
-				if rf.Anonymous {
-					childMethods := performMethodExtraction(sd, rf.Type, rootPlanName, cs)
-					hoistedMethods = append(hoistedMethods, childMethods...)
-				}
-			}
-		}
-
-		return hoistedMethods
+		ownMethods = append(ownMethods, m)
+		sd.self().addAvailableMethod(rootPlanName, cs, m)
 	}
 
-	extractOwnMethods = func(sd structDisassembler, t reflect.Type, rootPlanName string, cs componentStack, hoistedMethods []method) []method {
-		var ownMethods []method
-
-		for i := 0; i < t.NumMethod(); i++ {
-			rm := t.Method(i)
-
-			m := extractMethodDetails(rm, true)
-			m.owningType = t.PkgPath() + "/" + t.Name()
-
-			isHoistedMethod := func() bool {
-				for j := 0; j < len(hoistedMethods); j++ {
-					hm := hoistedMethods[j]
-
-					if hm.hasSameSignature(m) {
-						return true
-					}
-				}
-
-				return false
-			}()
-
-			// If a parent struct has a method carrying the same signature as one
-			// that is available in an embedded field, it means this is a hoisted
-			// method or the parent is overriding the same method with its own
-			// implementation. In either case, we can assume this is a hoisted
-			// method as it doesn't make a difference to how we should validate
-			// code templates.
-			if isHoistedMethod {
-				continue
-			}
-
-			ownMethods = append(ownMethods, m)
-			addAvailableMethod(sd, rootPlanName, cs, m)
-		}
-
-		return ownMethods
-	}
+	return ownMethods
 }
 
 type methodSet map[method]struct{}
