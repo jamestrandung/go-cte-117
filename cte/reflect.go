@@ -3,6 +3,7 @@ package cte
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -69,6 +70,7 @@ var extractMethodDetails = func(rm reflect.Method, ignoreFirstReceiverArgument b
 //go:generate mockery --name iStructDisassembler --case=underscore --inpackage
 type iStructDisassembler interface {
 	isAvailableMoreThanOnce(m method) bool
+	findAvailableMethods(name string) (methodSet, bool)
 	findMethodLocations(ms methodSet, rootPlanName string) []string
 	extractAvailableMethods(t reflect.Type) []method
 	addAvailableMethod(rootPlanName string, cs componentStack, m method)
@@ -106,6 +108,11 @@ func (sd structDisassembler) self() iStructDisassembler {
 
 func (sd structDisassembler) isAvailableMoreThanOnce(m method) bool {
 	return sd.methodsAvailableMoreThanOnce.has(m)
+}
+
+func (sd structDisassembler) findAvailableMethods(name string) (methodSet, bool) {
+	result, ok := sd.availableMethods[name]
+	return result, ok && result.count() > 0
 }
 
 func (sd structDisassembler) findMethodLocations(ms methodSet, rootPlanName string) []string {
@@ -258,5 +265,6 @@ func (ms methodSet) String() string {
 		methods = append(methods, key.String())
 	}
 
+	sort.Strings(methods)
 	return strings.Join(methods, ", ")
 }

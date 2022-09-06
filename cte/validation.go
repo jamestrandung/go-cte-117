@@ -88,13 +88,13 @@ func isInterfaceSatisfied(sd structDisassembler, expectedInterface reflect.Type,
 
 		requiredMethod := extractMethodDetails(rm, false)
 
-		ms, ok := sd.availableMethods[requiredMethod.name]
+		ms, ok := sd.self().findAvailableMethods(requiredMethod.name)
 		if !ok {
 			return ErrPlanMissingMethod.Err(requiredMethod)
 		}
 
 		if ms.count() > 1 {
-			methodLocations := sd.findMethodLocations(ms, rootPlanName)
+			methodLocations := sd.self().findMethodLocations(ms, rootPlanName)
 			return ErrPlanHavingAmbiguousMethods.Err(requiredMethod, ms, strings.Join(methodLocations, "; "))
 		}
 
@@ -104,8 +104,8 @@ func isInterfaceSatisfied(sd structDisassembler, expectedInterface reflect.Type,
 			return ErrPlanHavingMethodButSignatureMismatched.Err(requiredMethod, foundMethod)
 		}
 
-		if sd.isAvailableMoreThanOnce(foundMethod) {
-			methodLocations := sd.findMethodLocations(ms, rootPlanName)
+		if sd.self().isAvailableMoreThanOnce(foundMethod) {
+			methodLocations := sd.self().findMethodLocations(ms, rootPlanName)
 			return ErrPlanHavingSameMethodRegisteredMoreThanOnce.Err(foundMethod, strings.Join(methodLocations, "; "))
 		}
 	}
