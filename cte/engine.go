@@ -309,7 +309,8 @@ func (e Engine) VerifyConfigurations() error {
 	for _, p := range e.plans {
 		if p.isMasterPlan {
 			rp := reflect.New(p.pType)
-			if err := isComplete(e, rp); err != nil {
+
+			if err := newCompletenessValidator(e, rp).validate(); err != nil {
 				return err
 			}
 		}
