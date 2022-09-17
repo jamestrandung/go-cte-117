@@ -17,7 +17,7 @@ type completenessValidator struct {
 	engine       iEngine
 	planValue    reflect.Value
 	rootPlanName string
-	sd           structDisassembler
+	sd           *structDisassembler
 }
 
 func newCompletenessValidator(engine Engine, planValue reflect.Value) *completenessValidator {
@@ -26,25 +26,21 @@ func newCompletenessValidator(engine Engine, planValue reflect.Value) *completen
 	sd := newStructDisassembler()
 	sd.extractAvailableMethods(planValue.Type())
 
-	return &completenessValidator{
+	result := &completenessValidator{
 		engine:       engine,
 		planValue:    planValue,
 		rootPlanName: rootPlanName,
 		sd:           sd,
 	}
-}
 
-func (v *completenessValidator) self() iCompletenessValidator {
-	if v.itself == nil {
-		return v
-	}
+	result.itself = result
 
-	return v.itself
+	return result
 }
 
 func (v *completenessValidator) validate() error {
 	var cs componentStack
-	return v.self().doValidate(v.rootPlanName, cs, v.planValue)
+	return v.itself.doValidate(v.rootPlanName, cs, v.planValue)
 }
 
 func (v *completenessValidator) doValidate(planName string, cs componentStack, curPlanValue reflect.Value) error {
@@ -56,7 +52,7 @@ func (v *completenessValidator) doValidate(planName string, cs componentStack, c
 	}()
 
 	for _, h := range ap.preHooks {
-		err := v.self().verifyComponentCompleteness(h.metadata, cs, reflect.TypeOf(h.hook).String(), v.planValue.Type().String())
+		err := v.itself.verifyComponentCompleteness(h.metadata, cs, reflect.TypeOf(h.hook).String(), v.planValue.Type().String())
 		if err != nil {
 			return err
 		}
@@ -64,7 +60,7 @@ func (v *completenessValidator) doValidate(planName string, cs componentStack, c
 
 	for _, component := range ap.components {
 		if c, ok := v.engine.getComputer(component.id); ok {
-			err := v.self().verifyComponentCompleteness(c.metadata, cs, component.id, v.planValue.Type().String())
+			err := v.itself.verifyComponentCompleteness(c.metadata, cs, component.id, v.planValue.Type().String())
 			if err != nil {
 				return err
 			}
@@ -81,14 +77,14 @@ func (v *completenessValidator) doValidate(planName string, cs componentStack, c
 				return curPlanValue.Field(component.fieldIdx)
 			}()
 
-			if err := v.self().doValidate(component.id, cs, nestedPlanValue); err != nil {
+			if err := v.itself.doValidate(component.id, cs, nestedPlanValue); err != nil {
 				return err
 			}
 		}
 	}
 
 	for _, h := range ap.postHooks {
-		err := v.self().verifyComponentCompleteness(h.metadata, cs, reflect.TypeOf(h.hook).String(), v.planValue.Type().String())
+		err := v.itself.verifyComponentCompleteness(h.metadata, cs, reflect.TypeOf(h.hook).String(), v.planValue.Type().String())
 		if err != nil {
 			return err
 		}
@@ -103,7 +99,7 @@ func (v *completenessValidator) verifyComponentCompleteness(pm parsedMetadata, c
 		return ErrInoutMetaMissing.Err(componentID)
 	}
 
-	err := v.self().isInterfaceSatisfied(expectedInout)
+	err := v.itself.isInterfaceSatisfied(expectedInout)
 	if err != nil {
 		cs = cs.push(componentID)
 		return ErrPlanNotMeetingInoutRequirements.Err(planType, expectedInout, err.Error(), cs)
@@ -118,13 +114,13 @@ func (v *completenessValidator) isInterfaceSatisfied(expectedInterface reflect.T
 
 		requiredMethod := extractMethodDetails(rm, false)
 
-		ms, ok := v.sd.self().findAvailableMethods(requiredMethod.name)
+		ms, ok := v.sd.itself.findAvailableMethods(requiredMethod.name)
 		if !ok {
 			return ErrPlanMissingMethod.Err(requiredMethod)
 		}
 
 		if ms.count() > 1 {
-			methodLocations := v.sd.self().findMethodLocations(ms, v.rootPlanName)
+			methodLocations := v.sd.itself.findMethodLocations(ms, v.rootPlanName)
 			return ErrPlanHavingAmbiguousMethods.Err(requiredMethod, ms, strings.Join(methodLocations, "; "))
 		}
 
@@ -134,8 +130,8 @@ func (v *completenessValidator) isInterfaceSatisfied(expectedInterface reflect.T
 			return ErrPlanHavingMethodButSignatureMismatched.Err(requiredMethod, foundMethod)
 		}
 
-		if v.sd.self().isAvailableMoreThanOnce(foundMethod) {
-			methodLocations := v.sd.self().findMethodLocations(ms, v.rootPlanName)
+		if v.sd.itself.isAvailableMoreThanOnce(foundMethod) {
+			methodLocations := v.sd.itself.findMethodLocations(ms, v.rootPlanName)
 			return ErrPlanHavingSameMethodRegisteredMoreThanOnce.Err(foundMethod, strings.Join(methodLocations, "; "))
 		}
 	}
