@@ -14,7 +14,7 @@ type iCompletenessValidator interface {
 
 type completenessValidator struct {
 	itself       iCompletenessValidator
-	engine       Engine
+	engine       iEngine
 	planValue    reflect.Value
 	rootPlanName string
 	sd           structDisassembler
@@ -63,14 +63,16 @@ func (v *completenessValidator) doValidate(planName string, cs componentStack, c
 	}
 
 	for _, component := range ap.components {
-		if c, ok := v.engine.computers[component.id]; ok {
+		if c, ok := v.engine.getComputer(component.id); ok {
 			err := v.self().verifyComponentCompleteness(c.metadata, cs, component.id, v.planValue.Type().String())
 			if err != nil {
 				return err
 			}
+
+			continue
 		}
 
-		if _, ok := v.engine.plans[component.id]; ok {
+		if _, ok := v.engine.getPlan(component.id); ok {
 			nestedPlanValue := func() reflect.Value {
 				if curPlanValue.Kind() == reflect.Pointer {
 					return curPlanValue.Elem().Field(component.fieldIdx)

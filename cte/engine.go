@@ -3,15 +3,23 @@ package cte
 import (
 	"context"
 	"fmt"
-	"github.com/jamestrandung/go-concurrency-117/async"
-	"golang.org/x/sync/errgroup"
 	"reflect"
 	"runtime/debug"
+
+	"github.com/jamestrandung/go-concurrency-117/async"
+	"golang.org/x/sync/errgroup"
 )
 
 type registeredComputer struct {
 	computer delegatingComputer
 	metadata parsedMetadata
+}
+
+//go:generate mockery --name iEngine --case=underscore --inpackage
+type iEngine interface {
+	findAnalyzedPlan(planName string, curPlanValue reflect.Value) analyzedPlan
+	getComputer(componentID string) (registeredComputer, bool)
+	getPlan(planName string) (analyzedPlan, bool)
 }
 
 type Engine struct {
@@ -150,16 +158,19 @@ func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, component
 
 		tasks = append(
 			tasks,
-			async.NewSilentTask(func(taskCtx context.Context) error {
-				data, err := l(taskCtx, p)
+			async.NewSilentTask(
+				func(taskCtx context.Context) error {
+					data, err := l(taskCtx, p)
 
-				loadingData[i] = LoadingData{
-					Data: data,
-					Err:  err,
-				}
+					loadingData[i] = LoadingData{
+						Data: data,
+						Err:  err,
+					}
 
-				return nil
-			}))
+					return nil
+				},
+			),
+		)
 	}
 
 	async.ForkJoinST(ctx, tasks)
@@ -167,7 +178,13 @@ func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, component
 	return loadingData
 }
 
-func (e Engine) doExecuteSync(ctx context.Context, p MasterPlan, curPlanValue reflect.Value, loaders []loadingFn, components []parsedComponent) error {
+func (e Engine) doExecuteSync(
+	ctx context.Context,
+	p MasterPlan,
+	curPlanValue reflect.Value,
+	loaders []loadingFn,
+	components []parsedComponent,
+) error {
 	loadingData := e.doConcurrentLoading(ctx, p, len(components), loaders)
 
 	for idx, component := range components {
@@ -241,10 +258,12 @@ func (e Engine) doExecuteAsync(ctx context.Context, p MasterPlan, curPlanValue r
 				func(taskCtx context.Context) (interface{}, error) {
 					data, err := c.computer.Load(taskCtx, p)
 
-					return e.doExecuteComputer(taskCtx, c.computer, p, LoadingData{
-						Data: data,
-						Err:  err,
-					})
+					return e.doExecuteComputer(
+						taskCtx, c.computer, p, LoadingData{
+							Data: data,
+							Err:  err,
+						},
+					)
 				},
 			)
 
@@ -338,4 +357,14 @@ func (e Engine) findAnalyzedPlan(planName string, curPlanValue reflect.Value) an
 	}
 
 	return ap
+}
+
+func (e Engine) getComputer(componentID string) (registeredComputer, bool) {
+	c, ok := e.computers[componentID]
+	return c, ok
+}
+
+func (e Engine) getPlan(planName string) (analyzedPlan, bool) {
+	p, ok := e.plans[planName]
+	return p, ok
 }
