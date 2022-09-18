@@ -19,9 +19,7 @@ func extractFullNameFromValue(v interface{}) string {
 }
 
 var extractFullNameFromType = func(t reflect.Type) string {
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
+	t = extractNonPointerType(t)
 
 	return t.PkgPath() + "/" + t.Name()
 }
@@ -46,9 +44,13 @@ func extractFieldTypes(field reflect.StructField) (isPointerType bool, valueType
 }
 
 var extractUnderlyingType = func(v reflect.Value) reflect.Type {
-	if v.Kind() == reflect.Pointer {
-		return v.Elem().Type()
+	return extractNonPointerType(v.Type())
+}
+
+var extractNonPointerType = func(t reflect.Type) reflect.Type {
+	if t.Kind() == reflect.Pointer {
+		return t.Elem()
 	}
 
-	return v.Type()
+	return t
 }

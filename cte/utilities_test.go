@@ -1,9 +1,10 @@
 package cte
 
 import (
-	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type dummy struct {
@@ -41,9 +42,11 @@ func TestSwallowErrPlanExecutionEndingEarly(t *testing.T) {
 	for _, scenario := range scenarios {
 		s := scenario
 
-		t.Run(s.desc, func(t *testing.T) {
-			assert.Equal(t, s.expected, swallowErrPlanExecutionEndingEarly(s.err))
-		})
+		t.Run(
+			s.desc, func(t *testing.T) {
+				assert.Equal(t, s.expected, swallowErrPlanExecutionEndingEarly(s.err))
+			},
+		)
 	}
 }
 
@@ -81,9 +84,11 @@ func TestExtractFullNameFromType(t *testing.T) {
 	for _, scenario := range scenarios {
 		s := scenario
 
-		t.Run(s.desc, func(t *testing.T) {
-			assert.Equal(t, s.expected, extractFullNameFromType(s.t))
-		})
+		t.Run(
+			s.desc, func(t *testing.T) {
+				assert.Equal(t, s.expected, extractFullNameFromType(s.t))
+			},
+		)
 	}
 }
 
@@ -108,9 +113,11 @@ func TestExtractShortName(t *testing.T) {
 	for _, scenario := range scenarios {
 		s := scenario
 
-		t.Run(s.desc, func(t *testing.T) {
-			assert.Equal(t, s.expected, extractShortName(s.fullName))
-		})
+		t.Run(
+			s.desc, func(t *testing.T) {
+				assert.Equal(t, s.expected, extractShortName(s.fullName))
+			},
+		)
 	}
 }
 
@@ -118,38 +125,94 @@ func TestExtractFieldTypes(t *testing.T) {
 	d := reflect.TypeOf(dummy{})
 
 	pointerField := d.Field(0)
-	t.Run("pointer field", func(t *testing.T) {
-		isPointerType, valueType, pointerType := extractFieldTypes(pointerField)
+	t.Run(
+		"pointer field", func(t *testing.T) {
+			isPointerType, valueType, pointerType := extractFieldTypes(pointerField)
 
-		assert.Equal(t, true, isPointerType)
-		assert.Equal(t, reflect.TypeOf(""), valueType)
-		assert.Equal(t, reflect.PointerTo(reflect.TypeOf("")), pointerType)
-	})
+			assert.Equal(t, true, isPointerType)
+			assert.Equal(t, reflect.TypeOf(""), valueType)
+			assert.Equal(t, reflect.PointerTo(reflect.TypeOf("")), pointerType)
+		},
+	)
 
 	nonPointerField := d.Field(1)
-	t.Run("non-pointer field", func(t *testing.T) {
-		isPointerType, valueType, pointerType := extractFieldTypes(nonPointerField)
+	t.Run(
+		"non-pointer field", func(t *testing.T) {
+			isPointerType, valueType, pointerType := extractFieldTypes(nonPointerField)
 
-		assert.Equal(t, false, isPointerType)
-		assert.Equal(t, reflect.TypeOf(""), valueType)
-		assert.Equal(t, reflect.PointerTo(reflect.TypeOf("")), pointerType)
-	})
+			assert.Equal(t, false, isPointerType)
+			assert.Equal(t, reflect.TypeOf(""), valueType)
+			assert.Equal(t, reflect.PointerTo(reflect.TypeOf("")), pointerType)
+		},
+	)
 }
 
-func TestExtractUnderlyingType(t *testing.T) {
+func TestExtractUnderlyingType(test *testing.T) {
+	defer func(original func(t reflect.Type) reflect.Type) {
+		extractNonPointerType = original
+	}(extractNonPointerType)
+
+	scenarios := []struct {
+		desc string
+		test func(t *testing.T)
+	}{
+		{
+			desc: "pointer",
+			test: func(test *testing.T) {
+				s := "string"
+				v := reflect.ValueOf(&s)
+
+				expected := reflect.TypeOf(1)
+				extractNonPointerType = func(t reflect.Type) reflect.Type {
+					assert.Equal(test, v.Type(), t)
+
+					return expected
+				}
+
+				actual := extractUnderlyingType(v)
+				assert.Equal(test, expected, actual)
+			},
+		},
+		{
+			desc: "non-pointer",
+			test: func(test *testing.T) {
+				s := "string"
+				v := reflect.ValueOf(s)
+
+				expected := reflect.TypeOf(1)
+				extractNonPointerType = func(t reflect.Type) reflect.Type {
+					assert.Equal(test, v.Type(), t)
+
+					return expected
+				}
+
+				actual := extractUnderlyingType(v)
+				assert.Equal(test, expected, actual)
+			},
+		},
+	}
+
+	for _, scenario := range scenarios {
+		s := scenario
+
+		test.Run(s.desc, s.test)
+	}
+}
+
+func TestExtractNonPointerType(t *testing.T) {
 	scenarios := []struct {
 		desc     string
-		value    reflect.Value
+		t        reflect.Type
 		expected reflect.Type
 	}{
 		{
 			desc:     "pointer",
-			value:    reflect.ValueOf(&dummy{}),
+			t:        reflect.TypeOf(&dummy{}),
 			expected: reflect.TypeOf(dummy{}),
 		},
 		{
 			desc:     "non-pointer",
-			value:    reflect.ValueOf(dummy{}),
+			t:        reflect.TypeOf(dummy{}),
 			expected: reflect.TypeOf(dummy{}),
 		},
 	}
@@ -157,8 +220,10 @@ func TestExtractUnderlyingType(t *testing.T) {
 	for _, scenario := range scenarios {
 		s := scenario
 
-		t.Run(s.desc, func(t *testing.T) {
-			assert.Equal(t, s.expected, extractUnderlyingType(s.value))
-		})
+		t.Run(
+			s.desc, func(t *testing.T) {
+				assert.Equal(t, s.expected, extractNonPointerType(s.t))
+			},
+		)
 	}
 }

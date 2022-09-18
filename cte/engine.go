@@ -70,11 +70,7 @@ func (e Engine) registerComputer(mp MetadataProvider) {
 			panic(ErrComputerMetaMissing.Err(reflect.TypeOf(mp)))
 		}
 
-		if cType.Kind() == reflect.Pointer {
-			return cType.Elem()
-		}
-
-		return cType
+		return extractNonPointerType(cType)
 	}()
 
 	computer := reflect.New(computerType).Interface()

@@ -12,6 +12,7 @@ const (
 	metaTypeInout       metaType = "inout"
 )
 
+//go:generate mockery --name MetadataProvider --case=underscore --inpackage
 type MetadataProvider interface {
 	CTEMetadata() interface{}
 }
@@ -24,10 +25,7 @@ func extractMetadata(mp MetadataProvider, isComputerKey bool) parsedMetadata {
 		panic(ErrNilMetadata.Err(reflect.TypeOf(mp)))
 	}
 
-	rt := reflect.TypeOf(metadata)
-	if rt.Kind() == reflect.Pointer {
-		rt = rt.Elem()
-	}
+	rt := extractNonPointerType(reflect.TypeOf(metadata))
 
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
