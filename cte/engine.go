@@ -136,7 +136,7 @@ func (e Engine) doExecuteComputer(ctx context.Context, c delegatingComputer, p M
 	return result, err
 }
 
-func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, componentCount int, loaders []loadingFn) []LoadingData {
+func (e Engine) doConcurrentLoading(ctx context.Context, p MasterPlan, componentCount int, loaders []loadFn) []LoadingData {
 	// Data has to be loaded at the same index with the corresponding component
 	loadingData := make([]LoadingData, componentCount)
 	if len(loaders) == 0 {
@@ -178,7 +178,7 @@ func (e Engine) doExecuteSync(
 	ctx context.Context,
 	p MasterPlan,
 	curPlanValue reflect.Value,
-	loaders []loadingFn,
+	loaders []loadFn,
 	components []parsedComponent,
 ) error {
 	loadingData := e.doConcurrentLoading(ctx, p, len(components), loaders)

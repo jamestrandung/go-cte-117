@@ -8,6 +8,7 @@ type Plan interface {
 	IsSequentialCTEPlan() bool
 }
 
+//go:generate mockery --name MasterPlan --case=underscore --inpackage
 type MasterPlan interface {
 	Plan
 	Execute(ctx context.Context) error

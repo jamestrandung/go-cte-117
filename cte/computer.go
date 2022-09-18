@@ -2,32 +2,39 @@ package cte
 
 import (
 	"context"
-	"github.com/jamestrandung/go-concurrency-117/async"
 	"reflect"
+
+	"github.com/jamestrandung/go-concurrency-117/async"
 )
 
+//go:generate mockery --name ImpureComputer --case=underscore --inpackage
 type ImpureComputer interface {
 	Compute(ctx context.Context, p MasterPlan) (interface{}, error)
 }
 
+//go:generate mockery --name ImpureComputerWithLoadingData --case=underscore --inpackage
 type ImpureComputerWithLoadingData interface {
 	LoadingComputer
 	Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error)
 }
 
+//go:generate mockery --name SideEffectComputer --case=underscore --inpackage
 type SideEffectComputer interface {
 	Compute(ctx context.Context, p MasterPlan) error
 }
 
+//go:generate mockery --name SideEffectComputerWithLoadingData --case=underscore --inpackage
 type SideEffectComputerWithLoadingData interface {
 	LoadingComputer
 	Compute(ctx context.Context, p MasterPlan, data LoadingData) error
 }
 
+//go:generate mockery --name SwitchComputer --case=underscore --inpackage
 type SwitchComputer interface {
 	Switch(ctx context.Context, p MasterPlan) (MasterPlan, error)
 }
 
+//go:generate mockery --name SwitchComputerWithLoadingData --case=underscore --inpackage
 type SwitchComputerWithLoadingData interface {
 	LoadingComputer
 	Switch(ctx context.Context, p MasterPlan, data LoadingData) (MasterPlan, error)
@@ -46,30 +53,19 @@ type toExecutePlan struct {
 	mp MasterPlan
 }
 
-type loadingFn func(ctx context.Context, p MasterPlan) (interface{}, error)
+type loadFn func(ctx context.Context, p MasterPlan) (interface{}, error)
+type computeFn func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error)
 
 type delegatingComputer struct {
-	loadingFn loadingFn
-	computeFn func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error)
-}
-
-func (dc delegatingComputer) Load(ctx context.Context, p MasterPlan) (interface{}, error) {
-	if dc.loadingFn == nil {
-		return nil, nil
-	}
-
-	return dc.loadingFn(ctx, p)
-}
-
-func (dc delegatingComputer) Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
-	return dc.computeFn(ctx, p, data)
+	loadFn
+	computeFn
 }
 
 func newDelegatingComputer(rawComputer interface{}) delegatingComputer {
 	switch c := rawComputer.(type) {
 	case ImpureComputerWithLoadingData:
 		return delegatingComputer{
-			loadingFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
+			loadFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
 				return c.Load(ctx, p)
 			},
 			computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
@@ -84,7 +80,7 @@ func newDelegatingComputer(rawComputer interface{}) delegatingComputer {
 		}
 	case SideEffectComputerWithLoadingData:
 		return delegatingComputer{
-			loadingFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
+			loadFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
 				return c.Load(ctx, p)
 			},
 			computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
@@ -99,7 +95,7 @@ func newDelegatingComputer(rawComputer interface{}) delegatingComputer {
 		}
 	case SwitchComputerWithLoadingData:
 		return delegatingComputer{
-			loadingFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
+			loadFn: func(ctx context.Context, p MasterPlan) (interface{}, error) {
 				return c.Load(ctx, p)
 			},
 			computeFn: func(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
@@ -123,6 +119,18 @@ func newDelegatingComputer(rawComputer interface{}) delegatingComputer {
 	default:
 		panic(ErrInvalidComputerType.Err(reflect.TypeOf(c)))
 	}
+}
+
+func (dc delegatingComputer) Load(ctx context.Context, p MasterPlan) (interface{}, error) {
+	if dc.loadFn == nil {
+		return nil, nil
+	}
+
+	return dc.loadFn(ctx, p)
+}
+
+func (dc delegatingComputer) Compute(ctx context.Context, p MasterPlan, data LoadingData) (interface{}, error) {
+	return dc.computeFn(ctx, p, data)
 }
 
 type SideEffect struct{}

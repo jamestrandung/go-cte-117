@@ -20,7 +20,7 @@ type analyzedPlan struct {
 	isMasterPlan bool
 	isSequential bool
 	components   []parsedComponent
-	loaders      []loadingFn
+	loaders      []loadFn
 	preHooks     []preHook
 	postHooks    []postHook
 }
@@ -95,23 +95,23 @@ func (pa *planAnalyzer) analyze() analyzedPlan {
 	}
 }
 
-func (pa *planAnalyzer) extractLoaders() []loadingFn {
+func (pa *planAnalyzer) extractLoaders() []loadFn {
 	// Loaders have to maintain the same index with the corresponding component.
 	// Hence, cannot simply use append() on an empty slice.
-	loaders := make([]loadingFn, len(pa.components))
+	loaders := make([]loadFn, len(pa.components))
 
 	foundLoader := false
 	for idx, component := range pa.components {
 		if c, ok := pa.engine.computers[component.id]; ok {
-			if c.computer.loadingFn != nil {
-				loaders[idx] = c.computer.loadingFn
+			if c.computer.loadFn != nil {
+				loaders[idx] = c.computer.loadFn
 				foundLoader = true
 			}
 		}
 	}
 
 	if !foundLoader {
-		var tmp []loadingFn
+		var tmp []loadFn
 		return tmp
 	}
 
