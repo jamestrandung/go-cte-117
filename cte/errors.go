@@ -51,4 +51,8 @@ var (
 	ErrNilMetadata         = makeFormatErr("CTE-0009: metadata is nil for %v")
 	ErrComputerMetaMissing = makeFormatErr("CTE-0010: computer meta is missing in %v")
 	ErrInoutMetaMissing    = makeFormatErr("CTE-0011: inout meta is missing in %v")
+
+	ErrParallelPlanCannotContainSyncResult     = makeFormatErr("CTE-0012: parallel plan [%v] cannot contain SyncResult field [%v]")
+	ErrParallelPlanCannotContainSyncSideEffect = makeFormatErr("CTE-0013: parallel plan [%v] cannot contain SyncSideEffect field [%v]")
+	ErrUnknownComputerKeyType                  = makeFormatErr("CTE-0014: plan [%v] contains unknown computer key type [%v]")
 )

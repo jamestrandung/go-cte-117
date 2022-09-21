@@ -133,7 +133,10 @@ func (dc delegatingComputer) Compute(ctx context.Context, p MasterPlan, data Loa
 	return dc.computeFn(ctx, p, data)
 }
 
-type SideEffect struct{}
+type SideEffect struct {
+	isSync bool // This is a dummy field to prevent SideEffect & SyncSideEffect from being convertible to each other
+	// to help fieldAnalyzer.createComputerComponent works
+}
 
 type SyncSideEffect struct{}
 

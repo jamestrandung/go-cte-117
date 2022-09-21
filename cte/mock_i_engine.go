@@ -13,6 +13,11 @@ type mockIEngine struct {
 	mock.Mock
 }
 
+// AnalyzePlan provides a mock function with given fields: p
+func (_m *mockIEngine) AnalyzePlan(p Plan) {
+	_m.Called(p)
+}
+
 // findAnalyzedPlan provides a mock function with given fields: planName, curPlanValue
 func (_m *mockIEngine) findAnalyzedPlan(planName string, curPlanValue reflect.Value) analyzedPlan {
 	ret := _m.Called(planName, curPlanValue)
@@ -67,6 +72,11 @@ func (_m *mockIEngine) getPlan(planName string) (analyzedPlan, bool) {
 	}
 
 	return r0, r1
+}
+
+// registerComputer provides a mock function with given fields: mp
+func (_m *mockIEngine) registerComputer(mp MetadataProvider) {
+	_m.Called(mp)
 }
 
 type mockConstructorTestingTnewMockIEngine interface {

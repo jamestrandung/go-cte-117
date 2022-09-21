@@ -17,6 +17,8 @@ type registeredComputer struct {
 
 //go:generate mockery --name iEngine --case=underscore --inpackage
 type iEngine interface {
+	AnalyzePlan(p Plan)
+	registerComputer(mp MetadataProvider)
 	findAnalyzedPlan(planName string, curPlanValue reflect.Value) analyzedPlan
 	getComputer(componentID string) (registeredComputer, bool)
 	getPlan(planName string) (analyzedPlan, bool)

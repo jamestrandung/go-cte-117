@@ -1,7 +1,6 @@
 package cte
 
 import (
-	"fmt"
 	"reflect"
 )
 
@@ -45,7 +44,7 @@ type postHook struct {
 }
 
 type planAnalyzer struct {
-	engine     Engine
+	engine     iEngine
 	plan       Plan
 	planValue  reflect.Value
 	preHooks   []preHook
@@ -57,13 +56,7 @@ func (pa *planAnalyzer) analyze() analyzedPlan {
 	for i := 0; i < pa.planValue.NumField(); i++ {
 		isPointerType, fieldType, fieldPointerType := extractFieldTypes(pa.planValue.Type().Field(i))
 
-		fa := fieldAnalyzer{
-			pa:               pa,
-			fieldIdx:         i,
-			isPointerType:    isPointerType,
-			fieldType:        fieldType,
-			fieldPointerType: fieldPointerType,
-		}
+		fa := newFieldAnalyzer(pa, i, isPointerType, fieldType, fieldPointerType)
 
 		component, pre, post := fa.analyze()
 
@@ -102,7 +95,7 @@ func (pa *planAnalyzer) extractLoaders() []loadFn {
 
 	foundLoader := false
 	for idx, component := range pa.components {
-		if c, ok := pa.engine.computers[component.id]; ok {
+		if c, ok := pa.engine.getComputer(component.id); ok {
 			if c.computer.loadFn != nil {
 				loaders[idx] = c.computer.loadFn
 				foundLoader = true
@@ -118,12 +111,38 @@ func (pa *planAnalyzer) extractLoaders() []loadFn {
 	return loaders
 }
 
+//go:generate mockery --name iFieldAnalyzer --case=underscore --inpackage
+type iFieldAnalyzer interface {
+	createComputerComponent(componentID string) *parsedComponent
+}
+
 type fieldAnalyzer struct {
+	itself           iFieldAnalyzer
 	pa               *planAnalyzer
 	fieldIdx         int
 	isPointerType    bool
 	fieldType        reflect.Type
 	fieldPointerType reflect.Type
+}
+
+func newFieldAnalyzer(
+	pa *planAnalyzer,
+	fieldIdx int,
+	isPointerType bool,
+	fieldType reflect.Type,
+	fieldPointerType reflect.Type,
+) *fieldAnalyzer {
+	fa := &fieldAnalyzer{
+		pa:               pa,
+		fieldIdx:         fieldIdx,
+		isPointerType:    isPointerType,
+		fieldType:        fieldType,
+		fieldPointerType: fieldPointerType,
+	}
+
+	fa.itself = fa
+
+	return fa
 }
 
 func (fa *fieldAnalyzer) analyze() (*parsedComponent, *preHook, *postHook) {
@@ -196,43 +215,7 @@ func (fa *fieldAnalyzer) handleNestedPlan() *parsedComponent {
 func (fa *fieldAnalyzer) handleComputer() *parsedComponent {
 	componentID := extractFullNameFromType(fa.fieldType)
 
-	component := func() *parsedComponent {
-		if fa.fieldType.ConvertibleTo(resultType) {
-			// Both sequential & parallel plans can contain Result fields
-			return &parsedComponent{
-				id:            componentID,
-				fieldIdx:      fa.fieldIdx,
-				fieldType:     fa.fieldType,
-				requireSet:    true,
-				isPointerType: fa.isPointerType,
-			}
-		}
-
-		if fa.fieldType.ConvertibleTo(syncResultType) {
-			if !fa.pa.plan.IsSequentialCTEPlan() {
-				panic(fmt.Errorf("parallel plan cannot contain SyncResult field: %s", extractShortName(componentID)))
-			}
-
-			return &parsedComponent{
-				id:            componentID,
-				fieldIdx:      fa.fieldIdx,
-				fieldType:     fa.fieldType,
-				isSyncResult:  true,
-				requireSet:    true,
-				isPointerType: fa.isPointerType,
-			}
-		}
-
-		if fa.fieldType.ConvertibleTo(sideEffectType) || fa.fieldType.ConvertibleTo(syncSideEffectType) {
-			return &parsedComponent{
-				id:       componentID,
-				fieldIdx: fa.fieldIdx,
-			}
-		}
-
-		return nil
-	}()
-
+	component := fa.itself.createComputerComponent(componentID)
 	if component == nil {
 		return nil
 	}
@@ -246,4 +229,52 @@ func (fa *fieldAnalyzer) handleComputer() *parsedComponent {
 	fa.pa.engine.registerComputer(mp)
 
 	return component
+}
+
+func (fa *fieldAnalyzer) createComputerComponent(componentID string) *parsedComponent {
+	if fa.fieldType.ConvertibleTo(resultType) {
+		// Both sequential & parallel plans can contain Result fields
+		return &parsedComponent{
+			id:            componentID,
+			fieldIdx:      fa.fieldIdx,
+			fieldType:     fa.fieldType,
+			requireSet:    true,
+			isPointerType: fa.isPointerType,
+		}
+	}
+
+	if fa.fieldType.ConvertibleTo(syncResultType) {
+		if !fa.pa.plan.IsSequentialCTEPlan() {
+			panic(ErrParallelPlanCannotContainSyncResult.Err(fa.pa.planValue.Type(), extractShortName(componentID)))
+		}
+
+		return &parsedComponent{
+			id:            componentID,
+			fieldIdx:      fa.fieldIdx,
+			fieldType:     fa.fieldType,
+			isSyncResult:  true,
+			requireSet:    true,
+			isPointerType: fa.isPointerType,
+		}
+	}
+
+	if fa.fieldType.ConvertibleTo(sideEffectType) {
+		return &parsedComponent{
+			id:       componentID,
+			fieldIdx: fa.fieldIdx,
+		}
+	}
+
+	if fa.fieldType.ConvertibleTo(syncSideEffectType) {
+		if !fa.pa.plan.IsSequentialCTEPlan() {
+			panic(ErrParallelPlanCannotContainSyncSideEffect.Err(fa.pa.planValue.Type(), extractShortName(componentID)))
+		}
+
+		return &parsedComponent{
+			id:       componentID,
+			fieldIdx: fa.fieldIdx,
+		}
+	}
+
+	panic(ErrUnknownComputerKeyType.Err(fa.pa.planValue.Type(), extractShortName(componentID)))
 }
