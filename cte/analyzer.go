@@ -161,37 +161,37 @@ func (fa *fieldAnalyzer) analyze() (*parsedComponent, *preHook, *postHook) {
 func (fa *fieldAnalyzer) handleHooks() (*preHook, *postHook) {
 	// Hook types might be embedded in a parent plan struct. Hence, we need to check if the type
 	// is a hook but not a plan so that we don't register a plan as a hook.
-	typeAndPointerTypeIsNotPlanType := !fa.fieldType.Implements(planType) && !fa.fieldPointerType.Implements(planType)
+	typeOrPointerTypeIsPlanType := fa.fieldType.Implements(planType) || fa.fieldPointerType.Implements(planType)
 
 	// Hooks might be implemented with value or pointer receivers.
 	isPreHookType := fa.fieldType.Implements(preHookType) || fa.fieldPointerType.Implements(preHookType)
 	isPostHookType := fa.fieldType.Implements(postHookType) || fa.fieldPointerType.Implements(postHookType)
 
-	if typeAndPointerTypeIsNotPlanType && (isPreHookType || isPostHookType) {
-		// Call to Interface() returns a pointer value which is acceptable for
-		// both scenarios where fieldType uses pointer or value receiver to
-		// implement an interface
-		hook := reflect.New(fa.fieldType).Interface()
-
-		mp, ok := hook.(MetadataProvider)
-		if !ok {
-			panic(ErrMetadataMissing.Err(fa.fieldType))
-		}
-
-		if isPreHookType {
-			return &preHook{
-				hook:     hook.(Pre),
-				metadata: extractMetadata(mp, false),
-			}, nil
-		}
-
-		return nil, &postHook{
-			hook:     hook.(Post),
-			metadata: extractMetadata(mp, false),
-		}
+	if typeOrPointerTypeIsPlanType || (!isPreHookType && !isPostHookType) {
+		return nil, nil
 	}
 
-	return nil, nil
+	// Call to Interface() returns a pointer value which is acceptable for
+	// both scenarios where fieldType uses pointer or value receiver to
+	// implement an interface
+	hook := reflect.New(fa.fieldType).Interface()
+
+	mp, ok := hook.(MetadataProvider)
+	if !ok {
+		panic(ErrMetadataMissing.Err(fa.fieldType))
+	}
+
+	if isPreHookType {
+		return &preHook{
+			hook:     hook.(Pre),
+			metadata: extractMetadata(mp, false),
+		}, nil
+	}
+
+	return nil, &postHook{
+		hook:     hook.(Post),
+		metadata: extractMetadata(mp, false),
+	}
 }
 
 func (fa *fieldAnalyzer) handleNestedPlan() *parsedComponent {
@@ -276,5 +276,5 @@ func (fa *fieldAnalyzer) createComputerComponent(componentID string) *parsedComp
 		}
 	}
 
-	panic(ErrUnknownComputerKeyType.Err(fa.pa.planValue.Type(), extractShortName(componentID)))
+	return nil
 }
