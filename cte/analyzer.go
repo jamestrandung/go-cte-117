@@ -43,13 +43,35 @@ type postHook struct {
 	metadata parsedMetadata
 }
 
+//go:generate mockery --name iPlanAnalyzer --case=underscore --inpackage
+type iPlanAnalyzer interface {
+	extractLoaders() []loadFn
+}
+
 type planAnalyzer struct {
+	itself     iPlanAnalyzer
 	engine     iEngine
 	plan       Plan
 	planValue  reflect.Value
 	preHooks   []preHook
 	postHooks  []postHook
 	components []parsedComponent
+}
+
+func newPlanAnalyzer(e iEngine, p Plan, pValue reflect.Value) *planAnalyzer {
+	if pValue.Kind() == reflect.Pointer {
+		pValue = pValue.Elem()
+	}
+
+	result := &planAnalyzer{
+		engine:    e,
+		plan:      p,
+		planValue: pValue,
+	}
+
+	result.itself = result
+
+	return result
 }
 
 func (pa *planAnalyzer) analyze() analyzedPlan {
@@ -75,7 +97,7 @@ func (pa *planAnalyzer) analyze() analyzedPlan {
 
 	_, isMasterPlan := pa.plan.(MasterPlan)
 
-	loaders := pa.extractLoaders()
+	loaders := pa.itself.extractLoaders()
 
 	return analyzedPlan{
 		pType:        extractUnderlyingType(pa.planValue),

@@ -8,6 +8,141 @@ import (
 	"testing"
 )
 
+type analyze_Plan struct {
+	field1 dummy
+	field2 *dummy
+	field3 string
+}
+
+func (*analyze_Plan) IsSequentialCTEPlan() bool {
+	return true
+}
+
+func (*analyze_Plan) Execute(ctx context.Context) error {
+	return nil
+}
+
+func TestPlanAnalyzer_Analyze(t *testing.T) {
+	defer func(original func(field reflect.StructField) (isPointerType bool, valueType reflect.Type, pointerType reflect.Type)) {
+		extractFieldTypes = original
+	}(extractFieldTypes)
+
+	originalNewFieldAnalyzer := newFieldAnalyzer
+
+	defer func(
+		original func(
+			pa *planAnalyzer,
+			fieldIdx int,
+			isPointerType bool,
+			fieldType reflect.Type,
+			fieldPointerType reflect.Type,
+		) *fieldAnalyzer,
+	) {
+		newFieldAnalyzer = original
+	}(newFieldAnalyzer)
+
+	paMock := &mockIPlanAnalyzer{}
+
+	p := &analyze_Plan{}
+
+	pa := &planAnalyzer{
+		itself:    paMock,
+		plan:      p,
+		planValue: reflect.ValueOf(p).Elem(),
+	}
+
+	dummyComponent := &parsedComponent{}
+	dummyPreHook := &preHook{}
+	dummyPostHook := &postHook{}
+
+	var mockToAssert []interface{}
+
+	newFieldAnalyzer = func(
+		pa *planAnalyzer,
+		fieldIdx int,
+		isPointerType bool,
+		fieldType reflect.Type,
+		fieldPointerType reflect.Type,
+	) *fieldAnalyzer {
+		fa := originalNewFieldAnalyzer(pa, fieldIdx, isPointerType, fieldType, fieldPointerType)
+
+		switch fieldIdx {
+		case 0:
+			assert.False(t, isPointerType)
+			assert.Equal(t, reflect.TypeOf(dummy{}), fieldType)
+			assert.Equal(t, reflect.TypeOf(&dummy{}), fieldPointerType)
+
+			faMock := &mockIFieldAnalyzer{}
+			faMock.On("analyze").
+				Return(dummyComponent, nil, nil).
+				Once()
+
+			fa.itself = faMock
+			mockToAssert = append(mockToAssert, faMock)
+		case 1:
+			assert.True(t, isPointerType)
+			assert.Equal(t, reflect.TypeOf(dummy{}), fieldType)
+			assert.Equal(t, reflect.TypeOf(&dummy{}), fieldPointerType)
+
+			faMock := &mockIFieldAnalyzer{}
+			faMock.On("analyze").
+				Return(nil, dummyPreHook, nil).
+				Once()
+
+			fa.itself = faMock
+			mockToAssert = append(mockToAssert, faMock)
+		case 2:
+			assert.False(t, isPointerType)
+			assert.Equal(t, reflect.TypeOf("string"), fieldType)
+			assert.Equal(t, reflect.PointerTo(reflect.TypeOf("string")), fieldPointerType)
+
+			faMock := &mockIFieldAnalyzer{}
+			faMock.On("analyze").
+				Return(nil, nil, dummyPostHook).
+				Once()
+
+			fa.itself = faMock
+			mockToAssert = append(mockToAssert, faMock)
+		}
+
+		return fa
+	}
+
+	dummyLoadFns := []loadFn{}
+	paMock.On("extractLoaders").
+		Return(dummyLoadFns).
+		Once()
+
+	actual := pa.analyze()
+
+	expected := analyzedPlan{
+		pType:        reflect.TypeOf(analyze_Plan{}),
+		isMasterPlan: true,
+		isSequential: pa.plan.IsSequentialCTEPlan(),
+		components:   pa.components,
+		loaders:      dummyLoadFns,
+		preHooks:     pa.preHooks,
+		postHooks:    pa.postHooks,
+	}
+
+	assert.Equal(t, expected, actual)
+
+	if assert.Equal(t, 1, len(pa.components)) {
+		assert.Equal(t, *dummyComponent, pa.components[0])
+	}
+
+	if assert.Equal(t, 1, len(pa.preHooks)) {
+		assert.Equal(t, *dummyPreHook, pa.preHooks[0])
+	}
+
+	if assert.Equal(t, 1, len(pa.postHooks)) {
+		assert.Equal(t, *dummyPostHook, pa.postHooks[0])
+	}
+
+	mock.AssertExpectationsForObjects(t, paMock)
+	mock.AssertExpectationsForObjects(t, mockToAssert...)
+}
+
 func TestPlanAnalyzer_ExtractLoaders(t *testing.T) {
 	scenarios := []struct {
 		desc string
