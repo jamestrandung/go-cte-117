@@ -1,11 +1,268 @@
 package cte
 
 import (
+	"context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"reflect"
 	"testing"
 )
+
+func TestPlanAnalyzer_ExtractLoaders(t *testing.T) {
+	scenarios := []struct {
+		desc string
+		test func(test *testing.T)
+	}{
+		{
+			desc: "engine has no loaders",
+			test: func(test *testing.T) {
+				eMock := &mockIEngine{}
+
+				notAComputer := parsedComponent{id: "notAComputer"}
+				computer1 := parsedComponent{id: "computer1"}
+				computer2 := parsedComponent{id: "computer2"}
+
+				pa := &planAnalyzer{
+					engine: eMock,
+					components: []parsedComponent{
+						notAComputer, computer1, computer2,
+					},
+				}
+
+				eMock.On("getComputer", notAComputer.id).
+					Return(registeredComputer{}, false).
+					Once()
+
+				eMock.On("getComputer", computer1.id).
+					Return(registeredComputer{computer: delegatingComputer{loadFn: nil}}, true).
+					Once()
+
+				eMock.On("getComputer", computer2.id).
+					Return(registeredComputer{computer: delegatingComputer{loadFn: nil}}, true).
+					Once()
+
+				loadFns := pa.extractLoaders()
+				assert.Empty(test, loadFns)
+				mock.AssertExpectationsForObjects(test, eMock)
+			},
+		},
+		{
+			desc: "engine has some loaders",
+			test: func(test *testing.T) {
+				eMock := &mockIEngine{}
+
+				notAComputer := parsedComponent{id: "notAComputer"}
+				computer1 := parsedComponent{id: "computer1"}
+				computer2 := parsedComponent{id: "computer2"}
+				computer3 := parsedComponent{id: "computer3"}
+
+				pa := &planAnalyzer{
+					engine: eMock,
+					components: []parsedComponent{
+						notAComputer, computer1, computer2, computer3,
+					},
+				}
+
+				eMock.On("getComputer", notAComputer.id).
+					Return(registeredComputer{}, false).
+					Once()
+
+				dummyLoadFn1 := func(ctx context.Context, p MasterPlan) (interface{}, error) {
+					return 1, assert.AnError
+				}
+
+				eMock.On("getComputer", computer1.id).
+					Return(
+						registeredComputer{
+							computer: delegatingComputer{loadFn: dummyLoadFn1},
+						}, true,
+					).
+					Once()
+
+				eMock.On("getComputer", computer2.id).
+					Return(registeredComputer{computer: delegatingComputer{loadFn: nil}}, true).
+					Once()
+
+				dummyLoadFn2 := func(ctx context.Context, p MasterPlan) (interface{}, error) {
+					return "string", nil
+				}
+
+				eMock.On("getComputer", computer3.id).
+					Return(
+						registeredComputer{
+							computer: delegatingComputer{loadFn: dummyLoadFn2},
+						}, true,
+					).
+					Once()
+
+				loadFns := pa.extractLoaders()
+				assert.Equal(test, len(pa.components), len(loadFns), "the number of loadFn returned must be the same as the number of components")
+				assert.Nil(test, loadFns[0], "component at idx 0 is not a computer, returned loadFn a this idx must be nil")
+				assert.Nil(test, loadFns[2], "component at idx 2 is a computer without loadFn, returned loadFn a this idx must be nil")
+
+				t.Run(
+					"loadFn at idx 1 should be the same loadFn from computer at idx 1", func(t *testing.T) {
+						result, err := loadFns[1](context.Background(), nil)
+						assert.Equal(t, 1, result)
+						assert.Equal(t, assert.AnError, err)
+					},
+				)
+
+				t.Run(
+					"loadFn at idx 3 should be the same loadFn from computer at idx 3", func(t *testing.T) {
+						result, err := loadFns[3](context.Background(), nil)
+						assert.Equal(t, "string", result)
+						assert.Nil(t, err)
+					},
+				)
+			},
+		},
+	}
+
+	for _, scenario := range scenarios {
+		s := scenario
+
+		t.Run(s.desc, s.test)
+	}
+}
+
+func TestFieldAnalyzer_Analyze(t *testing.T) {
+	scenarios := []struct {
+		desc string
+		test func(test *testing.T)
+	}{
+		{
+			desc: "field is pre hook",
+			test: func(test *testing.T) {
+				faMock := &mockIFieldAnalyzer{}
+
+				fa := fieldAnalyzer{
+					itself: faMock,
+				}
+
+				dummyPreHook := &preHook{}
+				faMock.On("handleHooks").
+					Return(dummyPreHook, nil).
+					Once()
+
+				actualComponent, actualPreHook, actualPostHook := fa.analyze()
+				assert.Nil(test, actualComponent)
+				assert.Equal(test, dummyPreHook, actualPreHook)
+				assert.Nil(test, actualPostHook)
+				mock.AssertExpectationsForObjects(test, faMock)
+			},
+		},
+		{
+			desc: "field is post hook",
+			test: func(test *testing.T) {
+				faMock := &mockIFieldAnalyzer{}
+
+				fa := fieldAnalyzer{
+					itself: faMock,
+				}
+
+				dummyPostHook := &postHook{}
+				faMock.On("handleHooks").
+					Return(nil, dummyPostHook).
+					Once()
+
+				actualComponent, actualPreHook, actualPostHook := fa.analyze()
+				assert.Nil(test, actualComponent)
+				assert.Nil(test, actualPreHook)
+				assert.Equal(test, dummyPostHook, actualPostHook)
+				mock.AssertExpectationsForObjects(test, faMock)
+			},
+		},
+		{
+			desc: "field is nested plan",
+			test: func(test *testing.T) {
+				faMock := &mockIFieldAnalyzer{}
+
+				fa := fieldAnalyzer{
+					itself: faMock,
+				}
+
+				faMock.On("handleHooks").
+					Return(nil, nil).
+					Once()
+
+				dummyNestedPlanComponent := &parsedComponent{}
+				faMock.On("handleNestedPlan").
+					Return(dummyNestedPlanComponent).
+					Once()
+
+				actualComponent, actualPreHook, actualPostHook := fa.analyze()
+				assert.Equal(test, dummyNestedPlanComponent, actualComponent)
+				assert.Nil(test, actualPreHook)
+				assert.Nil(test, actualPostHook)
+				mock.AssertExpectationsForObjects(test, faMock)
+			},
+		},
+		{
+			desc: "field is computer",
+			test: func(test *testing.T) {
+				faMock := &mockIFieldAnalyzer{}
+
+				fa := fieldAnalyzer{
+					itself: faMock,
+				}
+
+				faMock.On("handleHooks").
+					Return(nil, nil).
+					Once()
+
+				faMock.On("handleNestedPlan").
+					Return(nil).
+					Once()
+
+				dummyComputerComponent := &parsedComponent{}
+				faMock.On("handleComputer").
+					Return(dummyComputerComponent).
+					Once()
+
+				actualComponent, actualPreHook, actualPostHook := fa.analyze()
+				assert.Equal(test, dummyComputerComponent, actualComponent)
+				assert.Nil(test, actualPreHook)
+				assert.Nil(test, actualPostHook)
+				mock.AssertExpectationsForObjects(test, faMock)
+			},
+		},
+		{
+			desc: "field is not CTE component",
+			test: func(test *testing.T) {
+				faMock := &mockIFieldAnalyzer{}
+
+				fa := fieldAnalyzer{
+					itself: faMock,
+				}
+
+				faMock.On("handleHooks").
+					Return(nil, nil).
+					Once()
+
+				faMock.On("handleNestedPlan").
+					Return(nil).
+					Once()
+
+				faMock.On("handleComputer").
+					Return(nil).
+					Once()
+
+				actualComponent, actualPreHook, actualPostHook := fa.analyze()
+				assert.Nil(test, actualComponent)
+				assert.Nil(test, actualPreHook)
+				assert.Nil(test, actualPostHook)
+				mock.AssertExpectationsForObjects(test, faMock)
+			},
+		},
+	}
+
+	for _, scenario := range scenarios {
+		s := scenario
+
+		t.Run(s.desc, s.test)
+	}
+}
 
 type handleHooks_BadPreHook struct{}
 

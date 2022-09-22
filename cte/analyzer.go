@@ -58,7 +58,7 @@ func (pa *planAnalyzer) analyze() analyzedPlan {
 
 		fa := newFieldAnalyzer(pa, i, isPointerType, fieldType, fieldPointerType)
 
-		component, pre, post := fa.analyze()
+		component, pre, post := fa.itself.analyze()
 
 		if component != nil {
 			pa.components = append(pa.components, *component)
@@ -113,6 +113,10 @@ func (pa *planAnalyzer) extractLoaders() []loadFn {
 
 //go:generate mockery --name iFieldAnalyzer --case=underscore --inpackage
 type iFieldAnalyzer interface {
+	analyze() (*parsedComponent, *preHook, *postHook)
+	handleHooks() (*preHook, *postHook)
+	handleNestedPlan() *parsedComponent
+	handleComputer() *parsedComponent
 	createComputerComponent(componentID string) *parsedComponent
 }
 
@@ -125,7 +129,7 @@ type fieldAnalyzer struct {
 	fieldPointerType reflect.Type
 }
 
-func newFieldAnalyzer(
+var newFieldAnalyzer = func(
 	pa *planAnalyzer,
 	fieldIdx int,
 	isPointerType bool,
@@ -146,16 +150,16 @@ func newFieldAnalyzer(
 }
 
 func (fa *fieldAnalyzer) analyze() (*parsedComponent, *preHook, *postHook) {
-	pre, post := fa.handleHooks()
+	pre, post := fa.itself.handleHooks()
 	if pre != nil || post != nil {
 		return nil, pre, post
 	}
 
-	if nestedPlan := fa.handleNestedPlan(); nestedPlan != nil {
+	if nestedPlan := fa.itself.handleNestedPlan(); nestedPlan != nil {
 		return nestedPlan, nil, nil
 	}
 
-	return fa.handleComputer(), nil, nil
+	return fa.itself.handleComputer(), nil, nil
 }
 
 func (fa *fieldAnalyzer) handleHooks() (*preHook, *postHook) {

@@ -29,7 +29,7 @@ func extractShortName(fullName string) string {
 	return fullName[shortNameIdx+1:]
 }
 
-func extractFieldTypes(field reflect.StructField) (isPointerType bool, valueType reflect.Type, pointerType reflect.Type) {
+var extractFieldTypes = func(field reflect.StructField) (isPointerType bool, valueType reflect.Type, pointerType reflect.Type) {
 	rawFieldType := field.Type
 	isPointerType = rawFieldType.Kind() == reflect.Pointer
 
